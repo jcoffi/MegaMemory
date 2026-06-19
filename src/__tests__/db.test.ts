@@ -191,6 +191,92 @@ describe("KnowledgeDB", () => {
     });
   });
 
+  describe("getProvenanceEdges (informed_by adjacency, B3)", () => {
+    function buildChain(): void {
+      // c -informed_by-> b -informed_by-> a   (a = ultimate ancestor)
+      // c -depends_on-> a   (non-informed_by; must be ignored)
+      // d -informed_by-> a  (TOMBSTONED edge; d node stays active)
+      db.insertNode({ id: "a", name: "A", kind: "decision", summary: "s" });
+      db.insertNode({ id: "b", name: "B", kind: "decision", summary: "s" });
+      db.insertNode({ id: "c", name: "C", kind: "decision", summary: "s" });
+      db.insertNode({ id: "d", name: "D", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "b", to_id: "a", relation: "informed_by" });
+      db.insertEdge({ from_id: "c", to_id: "b", relation: "informed_by" });
+      db.insertEdge({ from_id: "c", to_id: "a", relation: "depends_on" });
+      db.insertEdgeRaw({
+        from_id: "d",
+        to_id: "a",
+        relation: "informed_by",
+        removed_at: "2026-01-01 00:00:00",
+      });
+    }
+
+    it("upstream = active informed_by out-edges (ancestry), referentially closed", () => {
+      buildChain();
+      const { nodes, edges } = db.getProvenanceEdges(["c"], { direction: "upstream" });
+      expect(edges.map((e) => `${e.from_id}->${e.to_id}`)).toEqual(["c->b"]);
+      expect(edges.every((e) => e.relation === "informed_by")).toBe(true);
+      // referentially closed: both endpoints present in nodes
+      expect(nodes.map((n) => n.id).sort()).toEqual(["b", "c"]);
+    });
+
+    it("downstream = active informed_by in-edges (impact); tombstoned edge excluded by default", () => {
+      buildChain();
+      const { nodes, edges } = db.getProvenanceEdges(["a"], { direction: "downstream" });
+      expect(edges.map((e) => `${e.from_id}->${e.to_id}`)).toEqual(["b->a"]);
+      expect(nodes.map((n) => n.id).sort()).toEqual(["a", "b"]);
+    });
+
+    it("includeRemoved=true includes tombstoned edges (endpoint active)", () => {
+      buildChain();
+      const { nodes, edges } = db.getProvenanceEdges(["a"], {
+        direction: "downstream",
+        includeRemoved: true,
+      });
+      expect(edges.map((e) => `${e.from_id}->${e.to_id}`).sort()).toEqual([
+        "b->a",
+        "d->a",
+      ]);
+      expect(nodes.map((n) => n.id).sort()).toEqual(["a", "b", "d"]);
+    });
+
+    it("includeRemoved=true returns a removed endpoint node as a stub (referentially closed)", () => {
+      db.insertNode({ id: "x", name: "X", kind: "decision", summary: "s" });
+      db.insertNode({ id: "y", name: "Y", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "y", to_id: "x", relation: "informed_by" });
+      db.softDeleteNode("y", "removed"); // tombstones y's edges AND removes node y
+
+      const { nodes, edges } = db.getProvenanceEdges(["x"], {
+        direction: "downstream",
+        includeRemoved: true,
+      });
+      expect(edges.map((e) => `${e.from_id}->${e.to_id}`)).toEqual(["y->x"]);
+      expect(nodes.map((n) => n.id).sort()).toEqual(["x", "y"]);
+      expect(nodes.find((n) => n.id === "y")!.removed_at).not.toBeNull(); // stub
+    });
+
+    it("includeRemoved=false omits edges to removed endpoints (no dangling)", () => {
+      db.insertNode({ id: "x", name: "X", kind: "decision", summary: "s" });
+      db.insertNode({ id: "y", name: "Y", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "y", to_id: "x", relation: "informed_by" });
+      db.softDeleteNode("y", "removed");
+
+      const { nodes, edges } = db.getProvenanceEdges(["x"], {
+        direction: "downstream",
+      });
+      expect(edges).toHaveLength(0);
+      expect(nodes).toHaveLength(0);
+    });
+
+    it("empty ids returns an empty adjacency", () => {
+      buildChain();
+      expect(db.getProvenanceEdges([], { direction: "upstream" })).toEqual({
+        nodes: [],
+        edges: [],
+      });
+    });
+  });
+
   describe("nodes", () => {
     it("inserts and retrieves a node", () => {
       db.insertNode({

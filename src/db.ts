@@ -681,6 +681,74 @@ export class KnowledgeDB {
     return this.db.prepare("SELECT * FROM edges").all() as EdgeRow[];
   }
 
+  // ---- Provenance (informed_by) traversal reads ----
+
+  /**
+   * One-hop `informed_by` adjacency for a frontier of node ids (design §5.1, B3).
+   *
+   * - `direction: "upstream"`  → out-edges (from_id IN ids): ancestry/reasoning lineage.
+   * - `direction: "downstream"`→ in-edges  (to_id IN ids):   impact/blast radius.
+   *
+   * Only the `informed_by` projection is traversed; `parent_id` and other relations
+   * are never followed. The result is a flat, referentially-closed adjacency: every
+   * node referenced by a returned edge is present in `nodes` (never a dangling edge).
+   *
+   * `includeRemoved=false` (default): only active edges between active nodes.
+   * `includeRemoved=true` (retrospective): tombstoned edges are included and a
+   * tombstoned/removed endpoint node is returned as a stub so closure is preserved.
+   */
+  getProvenanceEdges(
+    ids: string[],
+    opts: { direction: "upstream" | "downstream"; includeRemoved?: boolean }
+  ): { nodes: NodeRow[]; edges: EdgeRow[] } {
+    if (ids.length === 0) return { nodes: [], edges: [] };
+
+    const includeRemoved = opts.includeRemoved ?? false;
+    const anchorCol = opts.direction === "upstream" ? "from_id" : "to_id";
+    const idPlaceholders = ids.map(() => "?").join(",");
+    const edgeRemovedFilter = includeRemoved ? "" : " AND removed_at IS NULL";
+
+    const candidateEdges = this.db
+      .prepare(
+        `SELECT * FROM edges WHERE relation = 'informed_by' AND ${anchorCol} IN (${idPlaceholders})${edgeRemovedFilter}`
+      )
+      .all(...ids) as EdgeRow[];
+
+    if (candidateEdges.length === 0) return { nodes: [], edges: [] };
+
+    // Resolve every referenced endpoint node (both ends) for referential closure.
+    const referenced = new Set<string>();
+    for (const e of candidateEdges) {
+      referenced.add(e.from_id);
+      referenced.add(e.to_id);
+    }
+    const refIds = [...referenced];
+    const nodePlaceholders = refIds.map(() => "?").join(",");
+    const nodeRemovedFilter = includeRemoved ? "" : " AND removed_at IS NULL";
+    const nodes = this.db
+      .prepare(
+        `SELECT * FROM nodes WHERE id IN (${nodePlaceholders})${nodeRemovedFilter}`
+      )
+      .all(...refIds) as NodeRow[];
+
+    // Drop any edge whose endpoint was filtered out — never emit a dangling edge.
+    const resolved = new Set(nodes.map((n) => n.id));
+    const edges = candidateEdges.filter(
+      (e) => resolved.has(e.from_id) && resolved.has(e.to_id)
+    );
+
+    // Keep only nodes still referenced by a surviving edge.
+    const survivingRefs = new Set<string>();
+    for (const e of edges) {
+      survivingRefs.add(e.from_id);
+      survivingRefs.add(e.to_id);
+    }
+    return {
+      nodes: nodes.filter((n) => survivingRefs.has(n.id)),
+      edges,
+    };
+  }
+
   deleteEdgesForNode(nodeId: string): void {
     this.db
       .prepare("DELETE FROM edges WHERE from_id = ? OR to_id = ?")
