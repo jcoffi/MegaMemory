@@ -97,6 +97,100 @@ describe("KnowledgeDB", () => {
     });
   });
 
+  describe("tombstones (provenance §2.3)", () => {
+    function tombstoneEdge(from: string, to: string): void {
+      (db as any).db
+        .prepare(
+          "UPDATE edges SET removed_at = datetime('now') WHERE from_id = ? AND to_id = ?"
+        )
+        .run(from, to);
+    }
+
+    it("softDeleteNode tombstones incident edges (no physical delete)", () => {
+      db.insertNode({ id: "ta", name: "A", kind: "feature", summary: "s" });
+      db.insertNode({ id: "tb", name: "B", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "tb", to_id: "ta", relation: "informed_by" });
+
+      db.softDeleteNode("ta", "cleanup");
+
+      const row = (db as any).db
+        .prepare("SELECT removed_at FROM edges WHERE from_id = 'tb' AND to_id = 'ta'")
+        .get() as { removed_at: string | null } | undefined;
+      expect(row).toBeTruthy(); // row still exists — not physically deleted
+      expect(row!.removed_at).not.toBeNull(); // tombstoned
+    });
+
+    it("tombstone-aware reads exclude tombstoned edges (endpoints still active)", () => {
+      db.insertNode({ id: "ra", name: "A", kind: "feature", summary: "s" });
+      db.insertNode({ id: "rb", name: "B", kind: "decision", summary: "s" });
+      db.insertNode({ id: "rc", name: "C", kind: "feature", summary: "s" });
+      db.insertEdge({ from_id: "rb", to_id: "ra", relation: "informed_by" });
+      db.insertEdge({ from_id: "rb", to_id: "rc", relation: "depends_on" });
+
+      tombstoneEdge("rb", "ra"); // both nodes stay active; only the edge is tombstoned
+
+      expect(db.getOutgoingEdges("rb").map((e) => e.to_id)).toEqual(["rc"]);
+      expect(db.getIncomingEdges("ra")).toHaveLength(0);
+      expect(db.getAllEdges().map((e) => `${e.from_id}->${e.to_id}`)).toEqual([
+        "rb->rc",
+      ]);
+    });
+
+    it("getStats edge count excludes tombstoned edges", () => {
+      db.insertNode({ id: "sa", name: "A", kind: "feature", summary: "s" });
+      db.insertNode({ id: "sb", name: "B", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "sb", to_id: "sa", relation: "informed_by" });
+      expect(db.getStats().edges).toBe(1);
+
+      tombstoneEdge("sb", "sa");
+      expect(db.getStats().edges).toBe(0);
+    });
+
+    it("getAllEdgesRaw stays unfiltered (includes tombstoned for merge)", () => {
+      db.insertNode({ id: "ga", name: "A", kind: "feature", summary: "s" });
+      db.insertNode({ id: "gb", name: "B", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "gb", to_id: "ga", relation: "informed_by" });
+
+      tombstoneEdge("gb", "ga");
+
+      const all = db.getAllEdgesRaw();
+      expect(all).toHaveLength(1);
+      expect(all[0].removed_at).not.toBeNull();
+    });
+
+    it("getEdgesAtTime excludes tombstoned edges", () => {
+      db.insertNode({ id: "ea", name: "A", kind: "feature", summary: "s" });
+      db.insertNode({ id: "eb", name: "B", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "eb", to_id: "ea", relation: "informed_by" });
+      const future = "2099-01-01 00:00:00";
+      expect(
+        db.getEdgesAtTime(future).map((e) => `${e.from_id}->${e.to_id}`)
+      ).toContain("eb->ea");
+
+      tombstoneEdge("eb", "ea");
+      expect(
+        db.getEdgesAtTime(future).map((e) => `${e.from_id}->${e.to_id}`)
+      ).not.toContain("eb->ea");
+    });
+
+    it("insertEdgeRaw round-trips removed_at (no tombstone resurrection)", () => {
+      db.insertNode({ id: "ia", name: "A", kind: "feature", summary: "s" });
+      db.insertNode({ id: "ib", name: "B", kind: "decision", summary: "s" });
+      db.insertEdgeRaw({
+        from_id: "ib",
+        to_id: "ia",
+        relation: "informed_by",
+        removed_at: "2026-01-01 00:00:00",
+      });
+
+      const all = db.getAllEdgesRaw();
+      expect(all).toHaveLength(1);
+      expect(all[0].removed_at).toBe("2026-01-01 00:00:00");
+      // Stays tombstoned: excluded from active reads.
+      expect(db.getAllEdges()).toHaveLength(0);
+    });
+  });
+
   describe("nodes", () => {
     it("inserts and retrieves a node", () => {
       db.insertNode({

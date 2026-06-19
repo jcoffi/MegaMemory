@@ -404,8 +404,12 @@ export class KnowledgeDB {
 
       if (result.changes > 0) {
         changed = true;
+        // Tombstone (not physically delete) incident edges so provenance lineage
+        // is preserved (design §2.3). Normal reads filter removed_at IS NULL.
         this.db
-          .prepare("DELETE FROM edges WHERE from_id = ? OR to_id = ?")
+          .prepare(
+            "UPDATE edges SET removed_at = datetime('now') WHERE (from_id = ? OR to_id = ?) AND removed_at IS NULL"
+          )
           .run(id, id);
       }
     });
@@ -464,7 +468,7 @@ export class KnowledgeDB {
       SELECT e.*, n.name as to_name, n.summary as to_summary
       FROM edges e
       JOIN nodes n ON e.to_id = n.id
-      WHERE e.from_id = ? AND n.removed_at IS NULL
+      WHERE e.from_id = ? AND n.removed_at IS NULL AND e.removed_at IS NULL
     `
       )
       .all(nodeId) as Array<EdgeRow & { to_name: string; to_summary: string }>;
@@ -479,7 +483,7 @@ export class KnowledgeDB {
       SELECT e.*, n.name as from_name, n.summary as from_summary
       FROM edges e
       JOIN nodes n ON e.from_id = n.id
-      WHERE e.to_id = ? AND n.removed_at IS NULL
+      WHERE e.to_id = ? AND n.removed_at IS NULL AND e.removed_at IS NULL
     `
       )
       .all(nodeId) as Array<
@@ -548,7 +552,7 @@ export class KnowledgeDB {
          FROM edges e
          JOIN nodes n1 ON e.from_id = n1.id
          JOIN nodes n2 ON e.to_id = n2.id
-         WHERE n1.removed_at IS NULL AND n2.removed_at IS NULL`
+         WHERE n1.removed_at IS NULL AND n2.removed_at IS NULL AND e.removed_at IS NULL`
       )
       .all() as EdgeRow[];
   }
@@ -573,7 +577,9 @@ export class KnowledgeDB {
         .get() as { count: number }
     ).count;
     const edges = (
-      this.db.prepare("SELECT COUNT(*) as count FROM edges").get() as {
+      this.db
+        .prepare("SELECT COUNT(*) as count FROM edges WHERE removed_at IS NULL")
+        .get() as {
         count: number;
       }
     ).count;
@@ -747,15 +753,16 @@ export class KnowledgeDB {
     relation: string;
     description?: string | null;
     created_at?: string | null;
+    removed_at?: string | null;
     merge_group?: string | null;
     needs_merge?: number;
     source_branch?: string | null;
     merge_timestamp?: string | null;
   }): number {
     const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO edges (from_id, to_id, relation, description, created_at,
+      INSERT OR IGNORE INTO edges (from_id, to_id, relation, description, created_at, removed_at,
         merge_group, needs_merge, source_branch, merge_timestamp)
-      VALUES (@from_id, @to_id, @relation, @description, @created_at,
+      VALUES (@from_id, @to_id, @relation, @description, @created_at, @removed_at,
         @merge_group, @needs_merge, @source_branch, @merge_timestamp)
     `);
     const result = stmt.run({
@@ -764,6 +771,7 @@ export class KnowledgeDB {
       relation: edge.relation,
       description: edge.description ?? null,
       created_at: edge.created_at ?? null,
+      removed_at: edge.removed_at ?? null,
       merge_group: edge.merge_group ?? null,
       needs_merge: edge.needs_merge ?? 0,
       source_branch: edge.source_branch ?? null,
@@ -938,6 +946,7 @@ export class KnowledgeDB {
       INNER JOIN nodes nf ON e.from_id = nf.id
       INNER JOIN nodes nt ON e.to_id = nt.id
       WHERE e.created_at <= @timestamp
+        AND e.removed_at IS NULL
         AND nf.created_at <= @timestamp
         AND nt.created_at <= @timestamp
         AND (nf.removed_at IS NULL OR nf.removed_at > @timestamp)
