@@ -32,6 +32,26 @@ describe("KnowledgeDB", () => {
     });
   });
 
+  describe("schema v5 - provenance columns", () => {
+    function userVersion(d: KnowledgeDB): number {
+      const raw = (d as any).db;
+      return (raw.prepare("PRAGMA user_version").get() as { user_version: number })
+        .user_version;
+    }
+
+    function columnNames(d: KnowledgeDB, table: string): string[] {
+      const raw = (d as any).db;
+      return (raw.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>)
+        .map((c) => c.name);
+    }
+
+    it("adds nodes.status, edges.removed_at, and sets user_version=5", () => {
+      expect(columnNames(db, "nodes")).toContain("status");
+      expect(columnNames(db, "edges")).toContain("removed_at");
+      expect(userVersion(db)).toBe(5);
+    });
+  });
+
   describe("nodes", () => {
     it("inserts and retrieves a node", () => {
       db.insertNode({

@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import type { NodeRow, EdgeRow } from "./types.js";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export class KnowledgeDB {
   private db: Database.Database;
@@ -167,6 +167,32 @@ export class KnowledgeDB {
           CREATE UNIQUE INDEX IF NOT EXISTS idx_edges_unique
           ON edges(from_id, to_id, relation)
         `);
+      }
+
+      if (currentVersion < 5) {
+        // Evidential provenance (design §2.2/§2.3/§3.1):
+        //   - nodes.status: node epistemic status (nullable, NO DEFAULT — NULL = legacy/unknown)
+        //   - edges.removed_at: edge tombstone column so node removal preserves lineage
+        // Both ALTERs are additive and idempotent (guarded by a column-presence check),
+        // running inside the existing BEGIN IMMEDIATE + post-lock re-check above.
+        const nodeColumns = this.db
+          .prepare("PRAGMA table_info(nodes)")
+          .all() as Array<{ name: string }>;
+        const nodeColNames = new Set(nodeColumns.map((c) => c.name));
+        if (!nodeColNames.has("status")) {
+          this.db.exec("ALTER TABLE nodes ADD COLUMN status TEXT");
+        }
+
+        const edgeColumns = this.db
+          .prepare("PRAGMA table_info(edges)")
+          .all() as Array<{ name: string }>;
+        const edgeColNames = new Set(edgeColumns.map((c) => c.name));
+        if (!edgeColNames.has("removed_at")) {
+          this.db.exec(
+            "ALTER TABLE edges ADD COLUMN removed_at TEXT;" +
+              "CREATE INDEX IF NOT EXISTS idx_edges_removed ON edges(removed_at);"
+          );
+        }
       }
 
       this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
