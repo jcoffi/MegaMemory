@@ -292,6 +292,10 @@ export async function registerTools(
     // record authored evidential provenance, not causal inference.
     "informed_by", "supersedes", "contradicts",
   ]);
+  const NodeStatusEnum = z.enum([
+    // Epistemic status (§2.2). NULL/absent = legacy/unknown, never treated as validated.
+    "open", "validated", "refuted", "superseded", "abandoned",
+  ]);
 
   // ---- Register tools ----
 
@@ -367,6 +371,7 @@ export async function registerTools(
       name: z.string().describe("Human-readable name for the concept"),
       kind: NodeKindEnum.describe("Type of concept: feature, module, pattern, config, decision, component"),
       summary: z.string().describe("What this concept is. Be specific: include parameter names, defaults, file paths, behavior details."),
+      status: NodeStatusEnum.optional().describe("Epistemic status for decisions/experiments/results: open (proposed — explicitly not a correctness claim) | validated (confirmed correct for a stated scope, by explicit evidence) | refuted (concluded incorrect — kept as a record) | superseded | abandoned. Omit for descriptive concepts that mirror code; new epistemic records start open."),
       why: z.string().optional().describe("Why this exists or was built this way"),
       parent_id: z.string().optional().describe("Parent concept ID for nesting"),
       file_refs: z.array(z.string()).optional().describe("Relevant file paths + optional line ranges"),
@@ -383,6 +388,7 @@ export async function registerTools(
           name: params.name,
           kind: params.kind as NodeKind,
           summary: params.summary,
+          status: params.status,
           why: params.why,
           parent_id: params.parent_id,
           file_refs: params.file_refs,
@@ -421,6 +427,7 @@ export async function registerTools(
         name: z.string().optional().describe("New name"),
         kind: NodeKindEnum.optional().describe("New kind"),
         summary: z.string().optional().describe("Updated summary"),
+        status: NodeStatusEnum.optional().describe("New epistemic status (open | validated | refuted | superseded | abandoned). `validated` must be earned by explicit evidence for a stated scope, never assumed; record that scope in `why`. Every status change requires a non-empty `why` rationale."),
         why: z.string().optional().describe("Updated rationale"),
         file_refs: z.array(z.string()).optional().describe("Updated file references"),
       }),
@@ -499,10 +506,11 @@ export async function registerTools(
     {
       id: z.string().describe("The concept ID to remove"),
       reason: z.string().describe("Why this concept is being removed"),
+      treat_as_descriptive: z.boolean().optional().describe("Set true only to confirm this concept is descriptive — it mirrors code and is re-derivable — so it may be removed even though it participates in provenance relations. Epistemic records (anything with a status, or that other concepts are `informed_by`) stay protected regardless; transition their status instead of removing them."),
     },
     async (params) => {
       try {
-        const result = removeConcept(db, { id: params.id, reason: params.reason });
+        const result = removeConcept(db, { id: params.id, reason: params.reason, treat_as_descriptive: params.treat_as_descriptive });
         timeline.log({
           tool: "remove_concept",
           params: { id: params.id },

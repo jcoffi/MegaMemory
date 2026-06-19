@@ -252,3 +252,83 @@ describe("stale-instructions signal on read tools (P9.2 / §3.3)", () => {
     expect(instructionsStaleFrom("", "1.6.1")).toBe(false);
   });
 });
+
+describe("status params on create/update (P2.3 / §2.2, §4.1)", () => {
+  const statuses = [
+    "open",
+    "validated",
+    "refuted",
+    "superseded",
+    "abandoned",
+  ] as const;
+
+  it("create_concept recognizes each valid status (not stripped) and rejects invalid", async () => {
+    const registry = await setup();
+    const schema = z.object(registry.create_concept.schema);
+    for (const s of statuses) {
+      const p = schema.safeParse({
+        name: "n",
+        kind: "decision",
+        summary: "sum",
+        status: s,
+      });
+      expect(p.success).toBe(true);
+      // status must be a recognized field (Zod would strip it if absent from the schema)
+      expect(p.success && p.data.status).toBe(s);
+    }
+    expect(
+      schema.safeParse({
+        name: "n",
+        kind: "decision",
+        summary: "sum",
+        status: "bogus",
+      }).success
+    ).toBe(false);
+  });
+
+  it("create_concept status is optional", async () => {
+    const registry = await setup();
+    const schema = z.object(registry.create_concept.schema);
+    expect(
+      schema.safeParse({ name: "n", kind: "feature", summary: "sum" }).success
+    ).toBe(true);
+  });
+
+  it("update_concept.changes recognizes a valid status (not stripped) and rejects invalid", async () => {
+    const registry = await setup();
+    const schema = z.object(registry.update_concept.schema);
+    const p = schema.safeParse({
+      id: "x",
+      changes: { status: "validated", why: "confirmed by the test scope" },
+    });
+    expect(p.success).toBe(true);
+    expect(p.success && p.data.changes.status).toBe("validated");
+    expect(
+      schema.safeParse({ id: "x", changes: { status: "bogus" } }).success
+    ).toBe(false);
+  });
+});
+
+describe("treat_as_descriptive on remove_concept (P5.2 / §4.4)", () => {
+  it("remove_concept recognizes treat_as_descriptive (not stripped) and requires a boolean", async () => {
+    const registry = await setup();
+    const schema = z.object(registry.remove_concept.schema);
+    const p = schema.safeParse({
+      id: "x",
+      reason: "re-derivable from code",
+      treat_as_descriptive: true,
+    });
+    expect(p.success).toBe(true);
+    expect(p.success && p.data.treat_as_descriptive).toBe(true);
+    expect(
+      schema.safeParse({ id: "x", reason: "r", treat_as_descriptive: "yes" })
+        .success
+    ).toBe(false);
+  });
+
+  it("remove_concept treat_as_descriptive is optional", async () => {
+    const registry = await setup();
+    const schema = z.object(registry.remove_concept.schema);
+    expect(schema.safeParse({ id: "x", reason: "r" }).success).toBe(true);
+  });
+});
