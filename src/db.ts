@@ -786,6 +786,67 @@ export class KnowledgeDB {
     return this.informedByReaches(to, from);
   }
 
+  /**
+   * Read-time epistemic-participation guard for remove_concept (design §4.4).
+   * A node is epistemically protected (must not be silently removed) if ANY of:
+   *   - it has a non-null `status` (an epistemic record);
+   *   - `kind === 'decision'` (legacy fallback before status existed);
+   *   - it has an active incoming `informed_by` edge (evidence depended upon);
+   *   - it is a legacy `status IS NULL` node with an active outgoing `informed_by`
+   *     edge (a legacy conclusion/result that has ancestry);
+   *   - it is an endpoint (either direction) of an active `contradicts`/`supersedes`
+   *     discourse edge.
+   * All edge lookups require `removed_at IS NULL`. `reasons` lists the stable
+   * identifiers of every condition that matched (empty ⇒ not protected).
+   */
+  isEpistemicallyProtected(id: string): {
+    protected: boolean;
+    reasons: string[];
+  } {
+    const reasons: string[] = [];
+    const node = this.getNodeIncludingRemoved(id);
+    if (!node) return { protected: false, reasons };
+
+    if (node.status !== null && node.status !== undefined) {
+      reasons.push("status_set");
+    }
+    if (node.kind === "decision") {
+      reasons.push("decision_kind");
+    }
+
+    const incomingInformedBy = this.db
+      .prepare(
+        "SELECT 1 FROM edges WHERE to_id = ? AND relation = 'informed_by' AND removed_at IS NULL LIMIT 1"
+      )
+      .get(id);
+    if (incomingInformedBy) reasons.push("incoming_informed_by");
+
+    if (node.status === null || node.status === undefined) {
+      const outgoingInformedBy = this.db
+        .prepare(
+          "SELECT 1 FROM edges WHERE from_id = ? AND relation = 'informed_by' AND removed_at IS NULL LIMIT 1"
+        )
+        .get(id);
+      if (outgoingInformedBy) reasons.push("legacy_outgoing_informed_by");
+    }
+
+    const contradictsEndpoint = this.db
+      .prepare(
+        "SELECT 1 FROM edges WHERE (from_id = ? OR to_id = ?) AND relation = 'contradicts' AND removed_at IS NULL LIMIT 1"
+      )
+      .get(id, id);
+    if (contradictsEndpoint) reasons.push("contradicts_endpoint");
+
+    const supersedesEndpoint = this.db
+      .prepare(
+        "SELECT 1 FROM edges WHERE (from_id = ? OR to_id = ?) AND relation = 'supersedes' AND removed_at IS NULL LIMIT 1"
+      )
+      .get(id, id);
+    if (supersedesEndpoint) reasons.push("supersedes_endpoint");
+
+    return { protected: reasons.length > 0, reasons };
+  }
+
   deleteEdgesForNode(nodeId: string): void {
     this.db
       .prepare("DELETE FROM edges WHERE from_id = ? OR to_id = ?")

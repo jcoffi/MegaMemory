@@ -326,6 +326,84 @@ describe("KnowledgeDB", () => {
     });
   });
 
+  describe("isEpistemicallyProtected (§4.4, P5.1)", () => {
+    it("protects a node with a non-null status (status_set)", () => {
+      db.insertNode({ id: "n1", name: "N", kind: "feature", summary: "s", status: "open" });
+      const r = db.isEpistemicallyProtected("n1");
+      expect(r.protected).toBe(true);
+      expect(r.reasons).toContain("status_set");
+    });
+
+    it("protects a legacy decision node (decision_kind, status NULL)", () => {
+      db.insertNode({ id: "n2", name: "N", kind: "decision", summary: "s" });
+      const r = db.isEpistemicallyProtected("n2");
+      expect(r.protected).toBe(true);
+      expect(r.reasons).toContain("decision_kind");
+    });
+
+    it("protects a node with an active incoming informed_by", () => {
+      db.insertNode({ id: "ev", name: "Ev", kind: "feature", summary: "s" }); // descriptive, status NULL
+      db.insertNode({ id: "dec", name: "Dec", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "dec", to_id: "ev", relation: "informed_by" });
+      const r = db.isEpistemicallyProtected("ev");
+      expect(r.protected).toBe(true);
+      expect(r.reasons).toContain("incoming_informed_by");
+    });
+
+    it("protects a legacy NULL node with an active outgoing informed_by", () => {
+      db.insertNode({ id: "concl", name: "C", kind: "feature", summary: "s" }); // status NULL, not decision
+      db.insertNode({ id: "basis", name: "B", kind: "feature", summary: "s" });
+      db.insertEdge({ from_id: "concl", to_id: "basis", relation: "informed_by" });
+      const r = db.isEpistemicallyProtected("concl");
+      expect(r.protected).toBe(true);
+      expect(r.reasons).toContain("legacy_outgoing_informed_by");
+    });
+
+    it("does NOT count outgoing informed_by when the node has a status", () => {
+      db.insertNode({ id: "sn", name: "S", kind: "feature", summary: "s", status: "validated" });
+      db.insertNode({ id: "sb", name: "B", kind: "feature", summary: "s" });
+      db.insertEdge({ from_id: "sn", to_id: "sb", relation: "informed_by" });
+      const r = db.isEpistemicallyProtected("sn");
+      expect(r.reasons).toContain("status_set");
+      expect(r.reasons).not.toContain("legacy_outgoing_informed_by");
+    });
+
+    it("protects a contradicts endpoint in either direction", () => {
+      db.insertNode({ id: "ca", name: "A", kind: "feature", summary: "s" });
+      db.insertNode({ id: "cb", name: "B", kind: "feature", summary: "s" });
+      db.insertEdge({ from_id: "ca", to_id: "cb", relation: "contradicts" });
+      expect(db.isEpistemicallyProtected("ca").reasons).toContain("contradicts_endpoint");
+      expect(db.isEpistemicallyProtected("cb").reasons).toContain("contradicts_endpoint");
+    });
+
+    it("protects a supersedes endpoint in either direction", () => {
+      db.insertNode({ id: "spa", name: "A", kind: "feature", summary: "s" });
+      db.insertNode({ id: "spb", name: "B", kind: "feature", summary: "s" });
+      db.insertEdge({ from_id: "spa", to_id: "spb", relation: "supersedes" });
+      expect(db.isEpistemicallyProtected("spa").reasons).toContain("supersedes_endpoint");
+      expect(db.isEpistemicallyProtected("spb").reasons).toContain("supersedes_endpoint");
+    });
+
+    it("does NOT protect a plain descriptive node (status NULL, feature, no relations)", () => {
+      db.insertNode({ id: "desc", name: "D", kind: "feature", summary: "s" });
+      const r = db.isEpistemicallyProtected("desc");
+      expect(r.protected).toBe(false);
+      expect(r.reasons).toEqual([]);
+    });
+
+    it("ignores tombstoned relation edges", () => {
+      db.insertNode({ id: "t1", name: "A", kind: "feature", summary: "s" });
+      db.insertNode({ id: "t2", name: "B", kind: "feature", summary: "s" });
+      db.insertEdgeRaw({ from_id: "t2", to_id: "t1", relation: "informed_by", removed_at: "2026-01-01 00:00:00" });
+      db.insertEdgeRaw({ from_id: "t1", to_id: "t2", relation: "contradicts", removed_at: "2026-01-01 00:00:00" });
+      expect(db.isEpistemicallyProtected("t1").protected).toBe(false);
+    });
+
+    it("returns not-protected for a nonexistent node", () => {
+      expect(db.isEpistemicallyProtected("ghost")).toEqual({ protected: false, reasons: [] });
+    });
+  });
+
   describe("nodes", () => {
     it("inserts and retrieves a node", () => {
       db.insertNode({
