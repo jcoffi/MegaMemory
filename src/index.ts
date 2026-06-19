@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "fs";
+import { readFileSync, realpathSync } from "fs";
 import { dirname, resolve } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import pc from "picocolors";
 import { errorBold, validatePort } from "./cli-utils.js";
 import { createTimelineLogger } from "./timeline.js";
@@ -59,87 +59,109 @@ function parseFlags(args: string[]): { port?: number; rawPort?: string } {
   return { port, rawPort };
 }
 
-const cmd = process.argv[2];
+async function runCli(): Promise<void> {
+  const cmd = process.argv[2];
 
-switch (cmd) {
-  case "install": {
-    const { runInstall } = await import("./install.js");
-    await runInstall(process.argv.slice(3));
-    process.exit(0);
-    break;
-  }
-
-  case "serve": {
-    const flags = parseFlags(process.argv.slice(3));
-    const port = flags.port ?? 4321;
-
-    const portError = validatePort(port, flags.rawPort);
-    if (portError) {
-      errorBold(portError);
-      process.exit(1);
+  switch (cmd) {
+    case "install": {
+      const { runInstall } = await import("./install.js");
+      await runInstall(process.argv.slice(3));
+      process.exit(0);
+      break;
     }
 
-    const { runServe } = await import("./web.js");
-    await runServe(port);
-    break;
-  }
+    case "serve": {
+      const flags = parseFlags(process.argv.slice(3));
+      const port = flags.port ?? 4321;
 
-  case "stats": {
-    const { runStats } = await import("./stats.js");
-    await runStats(process.argv.slice(3));
-    process.exit(0);
-    break;
-  }
+      const portError = validatePort(port, flags.rawPort);
+      if (portError) {
+        errorBold(portError);
+        process.exit(1);
+      }
 
-  case "merge": {
-    const { runMerge } = await import("./merge-cli.js");
-    await runMerge(process.argv.slice(3));
-    process.exit(0);
-    break;
-  }
-
-  case "conflicts": {
-    const { runConflicts } = await import("./merge-cli.js");
-    await runConflicts(process.argv.slice(3));
-    process.exit(0);
-    break;
-  }
-
-  case "resolve": {
-    const { runResolve } = await import("./merge-cli.js");
-    await runResolve(process.argv.slice(3));
-    process.exit(0);
-    break;
-  }
-
-  case "--help":
-  case "-h":
-    console.log(HELP);
-    process.exit(0);
-    break;
-
-  case "--version":
-  case "-v":
-    console.log(`${pc.bold("megamemory")} ${pc.green(`v${VERSION}`)}`);
-    process.exit(0);
-    break;
-
-  default:
-    if (cmd && !KNOWN_COMMANDS.has(cmd)) {
-      // User typed an unknown command — don't silently start MCP
-      errorBold(`Unknown command '${cmd}'.`);
-      console.log(pc.dim(`  Run ${pc.cyan("megamemory --help")} for usage.\n`));
-      process.exit(1);
+      const { runServe } = await import("./web.js");
+      await runServe(port);
+      break;
     }
-    // No command → start MCP server (normal invocation by editor)
-    try {
-      await startMcpServer();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      console.error(`MEGAMEMORY_ERROR: ${errorMsg}`);
-      process.exit(1);
+
+    case "stats": {
+      const { runStats } = await import("./stats.js");
+      await runStats(process.argv.slice(3));
+      process.exit(0);
+      break;
     }
-    break;
+
+    case "merge": {
+      const { runMerge } = await import("./merge-cli.js");
+      await runMerge(process.argv.slice(3));
+      process.exit(0);
+      break;
+    }
+
+    case "conflicts": {
+      const { runConflicts } = await import("./merge-cli.js");
+      await runConflicts(process.argv.slice(3));
+      process.exit(0);
+      break;
+    }
+
+    case "resolve": {
+      const { runResolve } = await import("./merge-cli.js");
+      await runResolve(process.argv.slice(3));
+      process.exit(0);
+      break;
+    }
+
+    case "--help":
+    case "-h":
+      console.log(HELP);
+      process.exit(0);
+      break;
+
+    case "--version":
+    case "-v":
+      console.log(`${pc.bold("megamemory")} ${pc.green(`v${VERSION}`)}`);
+      process.exit(0);
+      break;
+
+    default:
+      if (cmd && !KNOWN_COMMANDS.has(cmd)) {
+        // User typed an unknown command — don't silently start MCP
+        errorBold(`Unknown command '${cmd}'.`);
+        console.log(pc.dim(`  Run ${pc.cyan("megamemory --help")} for usage.\n`));
+        process.exit(1);
+      }
+      // No command → start MCP server (normal invocation by editor)
+      try {
+        await startMcpServer();
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        console.error(`MEGAMEMORY_ERROR: ${errorMsg}`);
+        process.exit(1);
+      }
+      break;
+  }
+}
+
+/**
+ * True only when this module is executed directly as the CLI entry point
+ * (`megamemory` / `node dist/index.js`), false when imported (e.g. by tests).
+ * `realpathSync` resolves the bin symlink created by global installs so the
+ * path matches `import.meta.url` (which is already the real module path).
+ */
+function isEntryPoint(): boolean {
+  try {
+    const entry = process.argv[1];
+    if (!entry) return false;
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint()) {
+  await runCli();
 }
 
 // ---- MCP Server ----
@@ -151,14 +173,8 @@ async function startMcpServer() {
   const { StdioServerTransport } = await import(
     "@modelcontextprotocol/sdk/server/stdio.js"
   );
-  const { z } = await import("zod");
   const path = await import("path");
   const { KnowledgeDB } = await import("./db.js");
-  const { understand, getConcept, createConcept, updateConcept, link, removeConcept, listRoots, listConflicts, resolveConflict, formatError } =
-    await import("./tools.js");
-
-  type NodeKind = import("./types.js").NodeKind;
-  type RelationType = import("./types.js").RelationType;
 
   // ---- Configuration ----
   const DB_PATH =
@@ -192,12 +208,89 @@ async function startMcpServer() {
     version: VERSION,
   });
 
+  await registerTools(server, {
+    db,
+    timeline,
+    version: VERSION,
+    isInstructionsStale: () =>
+      instructionsStaleFrom(process.env.MEGAMEMORY_INSTRUCTIONS_VERSION, VERSION),
+  });
+
+  // ---- Start ----
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error(`megamemory MCP server started (db: ${DB_PATH})`);
+}
+
+/**
+ * Pure staleness check for the installed agent-instruction files. Returns true
+ * only when an installed instruction version is KNOWN and strictly older than
+ * the running server version; when the installed version is unknown it returns
+ * false rather than fabricating staleness (§3.3 — never manufacture state).
+ *
+ * The installed version is stamped by the install layer (Phase 9.3, into the
+ * AGENTS.md/CLAUDE.md provenance block) and read here from
+ * MEGAMEMORY_INSTRUCTIONS_VERSION. The signal is surfaced on the MCP-visible
+ * read tools (list_roots / understand), never on stderr/console.error.
+ */
+export function instructionsStaleFrom(
+  installedVersion: string | undefined | null,
+  serverVersion: string
+): boolean {
+  if (!installedVersion) return false;
+  return compareSemver(installedVersion, serverVersion) < 0;
+}
+
+/** Numeric dot-segment compare: -1 if a<b, 1 if a>b, 0 if equal or unparseable. */
+function compareSemver(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10));
+  const pb = b.split(".").map((n) => parseInt(n, 10));
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (Number.isNaN(x) || Number.isNaN(y)) return 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * Registers every MegaMemory tool on the given MCP server. Extracted from the
+ * server bootstrap so the tool surface (descriptions, Zod schemas, handlers)
+ * is unit-testable without standing up a stdio transport. `deps` injects the
+ * open knowledge DB, the timeline logger, the server version, and a staleness
+ * predicate used to decorate read-tool output.
+ */
+export async function registerTools(
+  server: import("@modelcontextprotocol/sdk/server/mcp.js").McpServer,
+  deps: {
+    db: import("./db.js").KnowledgeDB;
+    timeline: ReturnType<typeof createTimelineLogger>;
+    version: string;
+    isInstructionsStale?: () => boolean;
+  }
+): Promise<void> {
+  const { z } = await import("zod");
+  const { understand, getConcept, createConcept, updateConcept, link, removeConcept, listRoots, listConflicts, resolveConflict, formatError } =
+    await import("./tools.js");
+
+  type NodeKind = import("./types.js").NodeKind;
+  type RelationType = import("./types.js").RelationType;
+
+  const { db, timeline, version } = deps;
+  const isInstructionsStale = deps.isInstructionsStale ?? (() => false);
+
   // ---- Zod schemas ----
   const NodeKindEnum = z.enum([
     "feature", "module", "pattern", "config", "decision", "component",
   ]);
   const RelationEnum = z.enum([
     "connects_to", "depends_on", "implements", "calls", "configured_by",
+    // Evidential provenance (§2.1): informed_by = material evidential support
+    // (strict DAG), supersedes = replacement, contradicts = conflict. These
+    // record authored evidential provenance, not causal inference.
+    "informed_by", "supersedes", "contradicts",
   ]);
 
   // ---- Register tools ----
@@ -220,7 +313,7 @@ async function startMcpServer() {
           is_error: false,
           affected_ids: result.matches.map((match) => match.id),
         });
-        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+        return { content: [{ type: "text" as const, text: JSON.stringify({ ...result, server_version: version, instructions_stale: isInstructionsStale() }, null, 2) }] };
       } catch (err) {
         timeline.log({
           tool: "understand",
@@ -269,7 +362,7 @@ async function startMcpServer() {
 
   server.tool(
     "create_concept",
-    "Add a new concept to the knowledge graph. Call this after completing a task to record new features, components, patterns, or decisions you built. Include specific details: parameter names, defaults, file locations, and rationale.",
+    "Add a new concept to the knowledge graph. Call this after completing a task to record new features, components, patterns, or decisions you built. Include specific details: parameter names, defaults, file locations, and rationale. When recording a decision, experiment, or result, attach `informed_by` edges (in `edges`) to the evidence, prior results, assumptions, or decision basis that materially supported it, with the supporting rationale in each edge's `description`. `informed_by` records authored evidential support, not causal inference.",
     {
       name: z.string().describe("Human-readable name for the concept"),
       kind: NodeKindEnum.describe("Type of concept: feature, module, pattern, config, decision, component"),
@@ -321,7 +414,7 @@ async function startMcpServer() {
 
   server.tool(
     "update_concept",
-    "Update an existing concept in the knowledge graph. Call this after completing a task that changed existing features or components. Only include fields that changed.",
+    "Update an existing concept in the knowledge graph. Call this after completing a task that changed existing features or components. Only include fields that changed. Use this to keep a concept's recorded rationale current as understanding evolves — for example when a decision is later confirmed, overturned, or superseded — rather than deleting the reasoning that came before.",
     {
       id: z.string().describe("The concept ID to update"),
       changes: z.object({
@@ -363,7 +456,7 @@ async function startMcpServer() {
 
   server.tool(
     "link",
-    "Create a relationship between two existing concepts.",
+    "Create a relationship between two existing concepts. Use `informed_by` to record that one concept (a decision or finding) was materially supported by another (evidence, a prior result, an assumption, or a decision basis), with the supporting rationale in `description`; use `supersedes` when one concept replaces another, and `contradicts` when two conflict. These relations capture authored evidential provenance, not causal inference.",
     {
       from: z.string().describe("Source concept ID"),
       to: z.string().describe("Target concept ID"),
@@ -402,7 +495,7 @@ async function startMcpServer() {
 
   server.tool(
     "remove_concept",
-    "Soft-delete a concept from the knowledge graph. The concept and its removal reason are preserved in history.",
+    "Remove a concept from the knowledge graph. Use this for descriptive concepts that mirror code and can be re-derived. Epistemic records — decisions, experiments, results, or any concept that other concepts are `informed_by` — should be kept and transitioned through their lifecycle rather than removed, so their reasoning lineage is not lost.",
     {
       id: z.string().describe("The concept ID to remove"),
       reason: z.string().describe("Why this concept is being removed"),
@@ -448,7 +541,7 @@ async function startMcpServer() {
           is_error: false,
           affected_ids: [],
         });
-        return { content: [{ type: "text" as const, text: JSON.stringify({ ...result, stats: db.getStats() }, null, 2) }] };
+        return { content: [{ type: "text" as const, text: JSON.stringify({ ...result, stats: db.getStats(), server_version: version, instructions_stale: isInstructionsStale() }, null, 2) }] };
       } catch (err) {
         timeline.log({
           tool: "list_roots",
@@ -534,9 +627,4 @@ async function startMcpServer() {
       }
     }
   );
-
-  // ---- Start ----
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error(`megamemory MCP server started (db: ${DB_PATH})`);
 }
