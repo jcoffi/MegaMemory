@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { KnowledgeDB } from "../db.js";
+import Database from "libsql";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -819,6 +820,112 @@ describe("KnowledgeDB", () => {
       const kinds = db.getKindsBreakdown();
       expect(kinds.feature).toBe(2);
       expect(kinds.module).toBe(1);
+    });
+  });
+
+  describe("schema v5 - upgrade from v4 (Task 0.2)", () => {
+    function rawUserVersion(raw: any): number {
+      return (raw.prepare("PRAGMA user_version").get() as { user_version: number })
+        .user_version;
+    }
+    function rawColumns(raw: any, table: string): string[] {
+      return (
+        raw.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+      ).map((c) => c.name);
+    }
+
+    // Build a GENUINE v4-shaped DB: nodes WITHOUT `status`, edges WITHOUT
+    // `removed_at`, PRAGMA user_version=4, plus existing node + edge rows.
+    function seedV4Db(p: string): void {
+      const raw = new Database(p);
+      raw.exec(`
+        CREATE TABLE nodes (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, summary TEXT NOT NULL,
+          why TEXT, file_refs TEXT, parent_id TEXT, created_by_task TEXT,
+          created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')),
+          removed_at TEXT, removed_reason TEXT, embedding BLOB,
+          merge_group TEXT, needs_merge INTEGER DEFAULT 0, source_branch TEXT, merge_timestamp TEXT
+        );
+        CREATE TABLE edges (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, from_id TEXT NOT NULL, to_id TEXT NOT NULL,
+          relation TEXT NOT NULL, description TEXT, created_at TEXT DEFAULT (datetime('now')),
+          merge_group TEXT, needs_merge INTEGER DEFAULT 0, source_branch TEXT, merge_timestamp TEXT
+        );
+        CREATE UNIQUE INDEX idx_edges_unique ON edges(from_id, to_id, relation);
+      `);
+      raw
+        .prepare("INSERT INTO nodes (id, name, kind, summary) VALUES (?, ?, ?, ?)")
+        .run("legacy-a", "Legacy A", "decision", "old decision");
+      raw
+        .prepare("INSERT INTO nodes (id, name, kind, summary) VALUES (?, ?, ?, ?)")
+        .run("legacy-b", "Legacy B", "feature", "old feature");
+      raw
+        .prepare(
+          "INSERT INTO edges (from_id, to_id, relation, description) VALUES (?, ?, ?, ?)"
+        )
+        .run("legacy-a", "legacy-b", "informed_by", "legacy lineage");
+      raw.pragma("user_version = 4");
+      raw.close();
+    }
+
+    it("upgrades a v4 DB to v5: adds columns, preserves rows, new cols NULL", () => {
+      const p = path.join(tmpDir, "v4-upgrade.db");
+      seedV4Db(p);
+
+      // Sanity: the seed really is v4-shaped (no status / no edge removed_at).
+      const pre = new Database(p);
+      expect(rawColumns(pre, "nodes")).not.toContain("status");
+      expect(rawColumns(pre, "edges")).not.toContain("removed_at");
+      expect(rawUserVersion(pre)).toBe(4);
+      pre.close();
+
+      // Reopen via KnowledgeDB → triggers the v5 migration.
+      const upgraded = new KnowledgeDB(p);
+      try {
+        const raw = (upgraded as any).db;
+        expect(rawColumns(raw, "nodes")).toContain("status");
+        expect(rawColumns(raw, "edges")).toContain("removed_at");
+        expect(rawUserVersion(raw)).toBe(5);
+
+        // Existing rows preserved (count + key fields); new cols default NULL.
+        expect(upgraded.getAllNodesRaw().length).toBe(2);
+        const nodeA = upgraded.getNode("legacy-a")!;
+        expect(nodeA.name).toBe("Legacy A");
+        expect(nodeA.status).toBeNull();
+
+        const edge = raw
+          .prepare(
+            "SELECT relation, removed_at FROM edges WHERE from_id = 'legacy-a' AND to_id = 'legacy-b'"
+          )
+          .get() as { relation: string; removed_at: string | null };
+        expect(edge.relation).toBe("informed_by");
+        expect(edge.removed_at).toBeNull();
+      } finally {
+        upgraded.close();
+      }
+    });
+
+    it("is idempotent: reopening an already-v5 DB is a no-op", () => {
+      const p = path.join(tmpDir, "v5-idempotent.db");
+      seedV4Db(p);
+
+      const first = new KnowledgeDB(p);
+      const firstNodeCols = rawColumns((first as any).db, "nodes").sort();
+      first.close();
+
+      // Reopen → migrate() must short-circuit (version >= SCHEMA_VERSION).
+      const second = new KnowledgeDB(p);
+      try {
+        const raw = (second as any).db;
+        expect(rawUserVersion(raw)).toBe(5);
+        expect(rawColumns(raw, "nodes").sort()).toEqual(firstNodeCols);
+        expect(rawColumns(raw, "edges")).toContain("removed_at");
+        // Data still intact after the second open.
+        expect(second.getAllNodesRaw().length).toBe(2);
+        expect(second.getNode("legacy-a")!.status).toBeNull();
+      } finally {
+        second.close();
+      }
     });
   });
 });
