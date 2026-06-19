@@ -53,6 +53,50 @@ describe("KnowledgeDB", () => {
     });
   });
 
+  describe("status (provenance write)", () => {
+    it("updateNode persists a status-only change", () => {
+      db.insertNode({ id: "d1", name: "D", kind: "decision", summary: "s" });
+      expect(db.updateNode("d1", { status: "validated" })).toBe(true);
+      expect(db.getNode("d1")!.status).toBe("validated");
+    });
+
+    it("insertNode persists status when provided", () => {
+      db.insertNode({
+        id: "d2",
+        name: "D2",
+        kind: "decision",
+        summary: "s",
+        status: "open",
+      });
+      expect(db.getNode("d2")!.status).toBe("open");
+    });
+
+    it("insertNode leaves status NULL when omitted", () => {
+      db.insertNode({ id: "d3", name: "D3", kind: "feature", summary: "s" });
+      expect(db.getNode("d3")!.status).toBeNull();
+    });
+
+    it("insertNodeAndEdges persists status", () => {
+      db.insertNode({ id: "ev", name: "Ev", kind: "feature", summary: "evidence" });
+      db.insertNodeAndEdges(
+        {
+          id: "d4",
+          name: "D4",
+          kind: "decision",
+          summary: "s",
+          why: null,
+          file_refs: null,
+          parent_id: null,
+          created_by_task: null,
+          embedding: null,
+          status: "open",
+        },
+        [{ to_id: "ev", relation: "informed_by", description: "based on" }]
+      );
+      expect(db.getNode("d4")!.status).toBe("open");
+    });
+  });
+
   describe("nodes", () => {
     it("inserts and retrieves a node", () => {
       db.insertNode({

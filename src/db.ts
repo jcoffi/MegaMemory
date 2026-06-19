@@ -1,7 +1,7 @@
 import Database from "libsql";
 import path from "path";
 import fs from "fs";
-import type { NodeRow, EdgeRow } from "./types.js";
+import type { NodeRow, EdgeRow, NodeStatus } from "./types.js";
 
 const SCHEMA_VERSION = 5;
 
@@ -262,10 +262,11 @@ export class KnowledgeDB {
     parent_id?: string | null;
     created_by_task?: string | null;
     embedding?: Buffer | null;
+    status?: NodeStatus | null;
   }): void {
     const stmt = this.db.prepare(`
-      INSERT INTO nodes (id, name, kind, summary, why, file_refs, parent_id, created_by_task, embedding)
-      VALUES (@id, @name, @kind, @summary, @why, @file_refs, @parent_id, @created_by_task, @embedding)
+      INSERT INTO nodes (id, name, kind, summary, why, file_refs, parent_id, created_by_task, embedding, status)
+      VALUES (@id, @name, @kind, @summary, @why, @file_refs, @parent_id, @created_by_task, @embedding, @status)
     `);
     stmt.run({
       id: node.id,
@@ -277,6 +278,7 @@ export class KnowledgeDB {
       parent_id: node.parent_id ?? null,
       created_by_task: node.created_by_task ?? null,
       embedding: node.embedding ?? null,
+      status: node.status ?? null,
     });
   }
 
@@ -291,6 +293,7 @@ export class KnowledgeDB {
       parent_id: string | null;
       created_by_task: string | null;
       embedding: Buffer | null;
+      status?: NodeStatus | null;
     },
     edges: Array<{ to_id: string; relation: string; description: string | null }>
   ): void {
@@ -307,6 +310,7 @@ export class KnowledgeDB {
         parent_id: node.parent_id,
         created_by_task: node.created_by_task,
         embedding: node.embedding,
+        status: node.status,
       });
 
       for (const edge of edges) {
@@ -343,6 +347,7 @@ export class KnowledgeDB {
       why?: string;
       file_refs?: string[];
       embedding?: Buffer;
+      status?: NodeStatus;
     }
   ): boolean {
     const fields: string[] = [];
@@ -371,6 +376,10 @@ export class KnowledgeDB {
     if (changes.embedding !== undefined) {
       fields.push("embedding = @embedding");
       values.embedding = changes.embedding;
+    }
+    if (changes.status !== undefined) {
+      fields.push("status = @status");
+      values.status = changes.status;
     }
 
     if (fields.length === 0) return false;
