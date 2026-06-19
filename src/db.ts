@@ -749,6 +749,43 @@ export class KnowledgeDB {
     };
   }
 
+  /**
+   * True if `to` is reachable from `from` by following active `informed_by`
+   * out-edges (`from` → ... → `to`). Other relations and tombstoned edges are
+   * never traversed; `parent_id` is excluded. The visited set makes traversal
+   * safe against legacy/corrupt cycles; a self-path is only reported when a real
+   * cycle leads back to `from`.
+   */
+  informedByReaches(from: string, to: string): boolean {
+    const stmt = this.db.prepare(
+      "SELECT to_id FROM edges WHERE from_id = ? AND relation = 'informed_by' AND removed_at IS NULL"
+    );
+    const visited = new Set<string>();
+    const stack: string[] = [from];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      const outs = stmt.all(cur) as Array<{ to_id: string }>;
+      for (const { to_id } of outs) {
+        if (to_id === to) return true;
+        if (!visited.has(to_id)) {
+          visited.add(to_id);
+          stack.push(to_id);
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * True if adding `from informed_by to` would violate the strict `informed_by`
+   * DAG invariant (§2.1): a self-loop (`from === to`), or an existing active
+   * `informed_by` path `to` → ... → `from` that the new edge would close.
+   */
+  wouldCreateCycle(from: string, to: string): boolean {
+    if (from === to) return true;
+    return this.informedByReaches(to, from);
+  }
+
   deleteEdgesForNode(nodeId: string): void {
     this.db
       .prepare("DELETE FROM edges WHERE from_id = ? OR to_id = ?")

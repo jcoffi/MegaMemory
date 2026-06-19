@@ -277,6 +277,55 @@ describe("KnowledgeDB", () => {
     });
   });
 
+  describe("informed_by DAG helpers (P4.1)", () => {
+    function chain(): void {
+      // a -informed_by-> b -informed_by-> c   (out-edges; a reaches c)
+      db.insertNode({ id: "a", name: "A", kind: "decision", summary: "s" });
+      db.insertNode({ id: "b", name: "B", kind: "decision", summary: "s" });
+      db.insertNode({ id: "c", name: "C", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "a", to_id: "b", relation: "informed_by" });
+      db.insertEdge({ from_id: "b", to_id: "c", relation: "informed_by" });
+    }
+
+    it("informedByReaches follows active informed_by out-edges transitively", () => {
+      chain();
+      expect(db.informedByReaches("a", "c")).toBe(true); // a->b->c
+      expect(db.informedByReaches("a", "b")).toBe(true);
+      expect(db.informedByReaches("c", "a")).toBe(false); // c has no out-edges
+      expect(db.informedByReaches("a", "a")).toBe(false); // no self-path
+    });
+
+    it("informedByReaches ignores non-informed_by relations", () => {
+      db.insertNode({ id: "p", name: "P", kind: "decision", summary: "s" });
+      db.insertNode({ id: "q", name: "Q", kind: "decision", summary: "s" });
+      db.insertEdge({ from_id: "p", to_id: "q", relation: "depends_on" });
+      expect(db.informedByReaches("p", "q")).toBe(false);
+    });
+
+    it("informedByReaches ignores tombstoned informed_by edges", () => {
+      db.insertNode({ id: "m", name: "M", kind: "decision", summary: "s" });
+      db.insertNode({ id: "n", name: "N", kind: "decision", summary: "s" });
+      db.insertEdgeRaw({
+        from_id: "m",
+        to_id: "n",
+        relation: "informed_by",
+        removed_at: "2026-01-01 00:00:00",
+      });
+      expect(db.informedByReaches("m", "n")).toBe(false);
+    });
+
+    it("wouldCreateCycle detects a back-edge that closes a cycle", () => {
+      chain();
+      expect(db.wouldCreateCycle("c", "a")).toBe(true); // c informed_by a closes c->a->b->c
+      expect(db.wouldCreateCycle("a", "c")).toBe(false); // a informed_by c: no existing c->a path
+    });
+
+    it("wouldCreateCycle rejects self-loops", () => {
+      db.insertNode({ id: "s1", name: "S", kind: "decision", summary: "s" });
+      expect(db.wouldCreateCycle("s1", "s1")).toBe(true);
+    });
+  });
+
   describe("nodes", () => {
     it("inserts and retrieves a node", () => {
       db.insertNode({
