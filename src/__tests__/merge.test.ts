@@ -149,6 +149,30 @@ describe("merge helpers", () => {
       const c = { ...a, file_refs: '["a.ts","c.ts"]' };
       expect(nodesAreIdentical(a, c)).toBe(false);
     });
+
+    it("returns false when status differs (§3.2)", () => {
+      const base: NodeRow = {
+        id: "test", name: "Test", kind: "decision", summary: "A",
+        why: null, file_refs: null, parent_id: null, created_by_task: null,
+        created_at: "", updated_at: "", removed_at: null, removed_reason: null,
+        status: "open",
+        embedding: null, merge_group: null, needs_merge: 0, source_branch: null, merge_timestamp: null,
+      };
+      const other = { ...base, status: "validated" as const };
+      expect(nodesAreIdentical(base, other)).toBe(false);
+    });
+
+    it("treats null/missing status as equal", () => {
+      const base: NodeRow = {
+        id: "test", name: "Test", kind: "decision", summary: "A",
+        why: null, file_refs: null, parent_id: null, created_by_task: null,
+        created_at: "", updated_at: "", removed_at: null, removed_reason: null,
+        status: null,
+        embedding: null, merge_group: null, needs_merge: 0, source_branch: null, merge_timestamp: null,
+      };
+      const other = { ...base };
+      expect(nodesAreIdentical(base, other)).toBe(true);
+    });
   });
 
   describe("edgeSetsAreIdentical", () => {
@@ -187,6 +211,95 @@ describe("MergeEngine", () => {
 
   beforeEach(() => {
     engine = new MergeEngine();
+  });
+
+  describe("provenance (P4.3)", () => {
+    it("flags needs_merge when two acyclic inputs union into an informed_by cycle (no abort)", () => {
+      const left = createTmpDb("left.db");
+      const right = createTmpDb("right.db");
+      const outputPath = path.join(tmpDir, "output.db");
+
+      // left: a -informed_by-> b  (acyclic)   right: b -informed_by-> a  (acyclic)
+      // a and b are identical on both sides -> clean node merge -> union edges form a cycle.
+      insertTestNode(left.db, "a");
+      insertTestNode(left.db, "b");
+      left.db.insertEdge({ from_id: "a", to_id: "b", relation: "informed_by", description: null });
+
+      insertTestNode(right.db, "a");
+      insertTestNode(right.db, "b");
+      right.db.insertEdge({ from_id: "b", to_id: "a", relation: "informed_by", description: null });
+
+      left.db.close();
+      right.db.close();
+
+      // Must NOT throw.
+      expect(() => engine.merge(left.path, right.path, outputPath)).not.toThrow();
+
+      const output = new KnowledgeDB(outputPath);
+      const cycleEdges = output
+        .getConflictEdges()
+        .filter((e) => e.relation === "informed_by");
+      const pairs = cycleEdges.map((e) => `${e.from_id}->${e.to_id}`).sort();
+      expect(pairs).toContain("a->b");
+      expect(pairs).toContain("b->a");
+      output.close();
+    });
+
+    it("treats diverged status as a concept conflict (§3.2)", () => {
+      const left = createTmpDb("left.db");
+      const right = createTmpDb("right.db");
+      const outputPath = path.join(tmpDir, "output.db");
+
+      insertTestNode(left.db, "d", { summary: "same" });
+      left.db.updateNode("d", { status: "open" });
+      insertTestNode(right.db, "d", { summary: "same" });
+      right.db.updateNode("d", { status: "validated" });
+
+      left.db.close();
+      right.db.close();
+
+      const result = engine.merge(left.path, right.path, outputPath);
+      expect(result.conceptConflicts).toBe(1);
+
+      const output = new KnowledgeDB(outputPath);
+      const all = output.getAllNodesRaw();
+      expect(all.find((n) => n.id === "d::left")).toBeDefined();
+      expect(all.find((n) => n.id === "d::right")).toBeDefined();
+      output.close();
+    });
+
+    it("preserves a tombstoned edge through merge (B1 — no resurrection)", () => {
+      const left = createTmpDb("left.db");
+      const right = createTmpDb("right.db");
+      const outputPath = path.join(tmpDir, "output.db");
+
+      insertTestNode(left.db, "x");
+      insertTestNode(left.db, "y");
+      left.db.insertEdge({ from_id: "x", to_id: "y", relation: "informed_by", description: null });
+      // Tombstone the edge directly; both nodes stay active.
+      (left.db as any).db
+        .prepare(
+          "UPDATE edges SET removed_at = '2026-01-01 00:00:00' WHERE from_id = 'x' AND to_id = 'y'"
+        )
+        .run();
+
+      insertTestNode(right.db, "x");
+      insertTestNode(right.db, "y");
+
+      left.db.close();
+      right.db.close();
+
+      engine.merge(left.path, right.path, outputPath);
+
+      const output = new KnowledgeDB(outputPath);
+      const raw = output
+        .getAllEdgesRaw()
+        .find((e) => e.from_id === "x" && e.to_id === "y" && e.relation === "informed_by");
+      expect(raw).toBeDefined();
+      expect(raw!.removed_at).toBe("2026-01-01 00:00:00"); // tombstone preserved (B1)
+      expect(output.getAllEdges()).toHaveLength(0); // still excluded from active reads
+      output.close();
+    });
   });
 
   describe("clean merge (no conflicts)", () => {
