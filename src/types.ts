@@ -13,6 +13,7 @@ export interface Node {
   updated_at: string;
   removed_at: string | null;
   removed_reason: string | null;
+  status: NodeStatus | null;
   merge_group: string | null;
   needs_merge: boolean;
   source_branch: string | null;
@@ -27,6 +28,13 @@ export type NodeKind =
   | "decision"
   | "component";
 
+export type NodeStatus =
+  | "open"
+  | "validated"
+  | "refuted"
+  | "superseded"
+  | "abandoned";
+
 export interface Edge {
   id: number;
   from_id: string;
@@ -34,6 +42,7 @@ export interface Edge {
   relation: RelationType;
   description: string | null;
   created_at: string;
+  removed_at: string | null;
   merge_group: string | null;
   needs_merge: boolean;
   source_branch: string | null;
@@ -45,7 +54,10 @@ export type RelationType =
   | "depends_on"
   | "implements"
   | "calls"
-  | "configured_by";
+  | "configured_by"
+  | "informed_by"
+  | "supersedes"
+  | "contradicts";
 
 // ---- Tool input types ----
 
@@ -58,6 +70,7 @@ export interface CreateConceptInput {
   name: string;
   kind: NodeKind;
   summary: string;
+  status?: NodeStatus;
   why?: string;
   parent_id?: string;
   file_refs?: string[];
@@ -75,6 +88,7 @@ export interface UpdateConceptInput {
     name?: string;
     kind?: NodeKind;
     summary?: string;
+    status?: NodeStatus;
     why?: string;
     file_refs?: string[];
   };
@@ -90,6 +104,7 @@ export interface LinkInput {
 export interface RemoveConceptInput {
   id: string;
   reason: string;
+  treat_as_descriptive?: boolean;
 }
 
 // ---- Tool output types ----
@@ -99,6 +114,7 @@ export interface NodeWithContext {
   name: string;
   kind: NodeKind;
   summary: string;
+  status?: NodeStatus | null;
   why: string | null;
   file_refs: string[] | null;
   children: Array<{
@@ -156,6 +172,7 @@ export interface NodeRow {
   updated_at: string;
   removed_at: string | null;
   removed_reason: string | null;
+  status: NodeStatus | null;
   embedding: Buffer | ArrayBuffer | null;
   merge_group: string | null;
   needs_merge: number; // SQLite stores boolean as 0/1
@@ -170,6 +187,7 @@ export interface EdgeRow {
   relation: string;
   description: string | null;
   created_at: string;
+  removed_at: string | null;
   merge_group: string | null;
   needs_merge: number; // SQLite stores boolean as 0/1
   source_branch: string | null;
