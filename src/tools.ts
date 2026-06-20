@@ -231,8 +231,15 @@ function validateInformedByEdge(db: KnowledgeDB, from: string, to: string, descr
   if (!description?.trim()) {
     throw new Error("informed_by relationships require a non-empty description rationale.");
   }
-  if (db.wouldCreateCycle(from, to)) {
+  // Self-loop or back-edge breaks the strict informed_by DAG. Check this before existence so a
+  // self-citation (target == the node being created) reports as a cycle, not a missing target.
+  if (from === to || db.wouldCreateCycle(from, to)) {
     throw new Error(`Adding informed_by from "${from}" to "${to}" would create an informed_by cycle.`);
+  }
+  // Don't silently drop evidence: an informed_by target must already exist. (create_concept's
+  // insertNodeAndEdges skips edges to missing targets; link() errors — be consistent and loud here.)
+  if (!db.nodeExists(to)) {
+    throw new Error(`informed_by target "${to}" does not exist — create the evidence concept first.`);
   }
 }
 

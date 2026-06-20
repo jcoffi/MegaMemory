@@ -138,6 +138,19 @@ describe("tools informed_by write guards", () => {
 
     expect(db.getNode("self-cycle")).toBeUndefined();
   });
+
+  it("create_concept errors (not silently drops) on informed_by to a missing target", async () => {
+    const db = new KnowledgeDB(":memory:");
+    await expect(
+      createConcept(db, {
+        name: "Decision X",
+        kind: "decision",
+        summary: "cites evidence that does not exist",
+        edges: [{ to: "nonexistent-evidence", relation: "informed_by", description: "based on missing evidence" }],
+      })
+    ).rejects.toThrow(/does not exist/);
+    expect(db.getNode("decision-x")).toBeUndefined();
+  });
 });
 
 describe("tools remove_concept epistemic guard", () => {
