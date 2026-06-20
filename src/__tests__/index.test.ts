@@ -332,3 +332,62 @@ describe("treat_as_descriptive on remove_concept (P5.2 / §4.4)", () => {
     expect(schema.safeParse({ id: "x", reason: "r" }).success).toBe(true);
   });
 });
+
+describe("provenance tools registration + wiring (P6.2/P7.3 / §5.1–5.4)", () => {
+  it("registers provenance_trace and provenance_audit with handlers + descriptions", async () => {
+    const registry = await setup();
+    for (const name of ["provenance_trace", "provenance_audit"]) {
+      expect(registry[name], `${name} should be registered`).toBeDefined();
+      expect(typeof registry[name].handler).toBe("function");
+      expect(registry[name].description.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("provenance_trace schema enforces direction enum and depth bound", async () => {
+    const registry = await setup();
+    const s = z.object(registry.provenance_trace.schema);
+    expect(s.safeParse({ target: "x", direction: "upstream" }).success).toBe(true);
+    expect(s.safeParse({ target: "x", direction: "downstream", depth: 3 }).success).toBe(true);
+    expect(s.safeParse({ target: "x", direction: "sideways" }).success).toBe(false);
+    expect(s.safeParse({ target: "x", direction: "upstream", depth: 99 }).success).toBe(false);
+  });
+
+  it("provenance_audit schema accepts the three views and rejects others", async () => {
+    const registry = await setup();
+    const s = z.object(registry.provenance_audit.schema);
+    for (const view of ["retrospective", "frontier", "triage"]) {
+      expect(s.safeParse({ view }).success, view).toBe(true);
+    }
+    expect(s.safeParse({ view: "bogus" }).success).toBe(false);
+  });
+
+  it("provenance_trace upstream returns the evidence a decision is informed_by", async () => {
+    const registry = await setup();
+    db.insertNode({ id: "ev1", name: "Finding", kind: "decision", summary: "a finding", status: "validated" } as any);
+    db.insertNode({ id: "dec1", name: "Decision", kind: "decision", summary: "a decision", status: "open" } as any);
+    db.insertEdge({ from_id: "dec1", to_id: "ev1", relation: "informed_by", description: "based on the finding" } as any);
+    const json = parseHandlerJson(await registry.provenance_trace.handler({ target: "dec1", direction: "upstream" }));
+    expect(json.direction).toBe("upstream");
+    const ids = json.nodes.map((n: any) => n.id);
+    expect(ids).toContain("dec1");
+    expect(ids).toContain("ev1");
+    expect(Array.isArray(json.hygiene_flags)).toBe(true);
+    expect(json.node_count).toBeGreaterThanOrEqual(2);
+  });
+
+  it("provenance_audit runs each view and returns the right shape", async () => {
+    const registry = await setup();
+    db.insertNode({ id: "ev1", name: "Finding", kind: "decision", summary: "open finding", status: "open" } as any);
+    db.insertNode({ id: "dec1", name: "Decision", kind: "decision", summary: "a decision", status: "validated" } as any);
+    db.insertEdge({ from_id: "dec1", to_id: "ev1", relation: "informed_by", description: "based on" } as any);
+    for (const view of ["retrospective", "frontier", "triage"] as const) {
+      const json = parseHandlerJson(await registry.provenance_audit.handler({ view }));
+      expect(json.view).toBe(view);
+      expect(Array.isArray(json.items)).toBe(true);
+      expect(Array.isArray(json.hygiene_flags)).toBe(true);
+    }
+    // ev1 is unvalidated and a validated decision depends on it → it surfaces on the frontier
+    const frontier = parseHandlerJson(await registry.provenance_audit.handler({ view: "frontier" }));
+    expect(frontier.items.map((i: any) => i.node.id)).toContain("ev1");
+  });
+});

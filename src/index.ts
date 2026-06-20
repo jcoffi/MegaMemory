@@ -272,7 +272,7 @@ export async function registerTools(
   }
 ): Promise<void> {
   const { z } = await import("zod");
-  const { understand, getConcept, createConcept, updateConcept, link, removeConcept, listRoots, listConflicts, resolveConflict, formatError } =
+  const { understand, getConcept, createConcept, updateConcept, link, removeConcept, listRoots, listConflicts, resolveConflict, provenanceTrace, provenanceAudit, formatError } =
     await import("./tools.js");
 
   type NodeKind = import("./types.js").NodeKind;
@@ -628,6 +628,80 @@ export async function registerTools(
           params: { merge_group: params.merge_group },
           result_summary: err instanceof Error ? err.message : String(err),
           is_write: true,
+          is_error: true,
+          affected_ids: [],
+        });
+        return formatError(err);
+      }
+    }
+  );
+
+  server.tool(
+    "provenance_trace",
+    "Trace authored evidential provenance for a concept along `informed_by` edges. direction='upstream' returns the evidence/reasoning lineage a decision was informed_by; direction='downstream' returns what a finding influenced. Returns a bounded provenance subgraph (nodes with status, edges, supersedes/contradicts cross-edges, and hygiene flags). This is authored evidential provenance for reasoning — not causal inference.",
+    {
+      target: z.string().describe("The concept ID to trace from"),
+      direction: z.enum(["upstream", "downstream"]).describe("upstream = what this was informed_by (ancestry); downstream = what this informed (impact)"),
+      depth: z.number().int().min(1).max(8).optional().describe("Max traversal depth (default 4)"),
+      max_nodes: z.number().int().min(1).max(500).optional().describe("Max nodes returned (default 100)"),
+      max_edges: z.number().int().min(0).max(1000).optional().describe("Max edges returned (default 200)"),
+      detail: z.enum(["ids_only", "summary", "full"]).optional().describe("Per-node detail level (default summary)"),
+      max_text_chars: z.number().int().min(0).max(5000).optional().describe("Cap on per-field text length"),
+      max_bytes: z.number().int().min(200).max(1_000_000).optional().describe("Byte cap on the response at detail=full"),
+      include_removed: z.boolean().optional().describe("Include tombstoned edges/nodes (default false)"),
+    },
+    async (params) => {
+      try {
+        const result = provenanceTrace(db, params);
+        timeline.log({
+          tool: "provenance_trace",
+          params: { target: params.target, direction: params.direction },
+          result_summary: `${result.node_count} nodes, ${result.edge_count} edges`,
+          is_write: false,
+          is_error: false,
+          affected_ids: result.nodes.map((node) => node.id),
+        });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        timeline.log({
+          tool: "provenance_trace",
+          params: { target: params.target, direction: params.direction },
+          result_summary: err instanceof Error ? err.message : String(err),
+          is_write: false,
+          is_error: true,
+          affected_ids: [],
+        });
+        return formatError(err);
+      }
+    }
+  );
+
+  server.tool(
+    "provenance_audit",
+    "Audit the evidential-provenance graph (read-only scaffold for reasoning, not causal inference). view='retrospective' surfaces refuted/superseded/abandoned decisions with their `informed_by` lineage and replacements (\"where did our thinking go wrong\"); view='frontier' ranks open/unvalidated concepts by how much downstream work depends on them, hub-penalized (\"what to validate or test next\"); view='triage' lists legacy concepts that have no status yet participate in provenance relations.",
+    {
+      view: z.enum(["retrospective", "frontier", "triage"]).describe("retrospective | frontier | triage"),
+      limit: z.number().int().min(1).max(100).optional().describe("Max items returned (default 25)"),
+      cursor: z.string().optional().describe("Pagination cursor"),
+    },
+    async (params) => {
+      try {
+        const result = provenanceAudit(db, params);
+        timeline.log({
+          tool: "provenance_audit",
+          params: { view: params.view },
+          result_summary: `${result.items.length} items`,
+          is_write: false,
+          is_error: false,
+          affected_ids: result.items.map((item) => item.node.id),
+        });
+        return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      } catch (err) {
+        timeline.log({
+          tool: "provenance_audit",
+          params: { view: params.view },
+          result_summary: err instanceof Error ? err.message : String(err),
+          is_write: false,
           is_error: true,
           affected_ids: [],
         });
