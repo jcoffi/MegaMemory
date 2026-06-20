@@ -31,22 +31,34 @@ Your persistent memory of the codebase. You have no implicit memory of this proj
 
 ## Relationship Types
 
+**Structural:**
 - \`depends_on\` — A requires B to function
 - \`implements\` — A is the concrete implementation of B
 - \`calls\` — A invokes B at runtime
 - \`connects_to\` — A and B interact or share data
 - \`configured_by\` — A's behavior is controlled by B
 
+**Evidential provenance** (authored support, not causal inference):
+- \`informed_by\` — A (a decision/finding) was materially supported by B (evidence, a prior result, an assumption, or a decision basis). Strict DAG — cycles are rejected; put the rationale in the edge description.
+- \`supersedes\` — A replaces B; also set B's status to \`superseded\`.
+- \`contradicts\` — A and B conflict; both records stay visible.
+
+## Concept Status
+
+For decisions / experiments / results: \`open\` (proposed — not a correctness claim) · \`validated\` (confirmed for a stated scope, by explicit evidence — never assumed) · \`refuted\` · \`superseded\` · \`abandoned\`. Omit for descriptive concepts that mirror code; legacy NULL means unknown, not validated. Prefer a status transition over deleting an epistemic record.
+
 ## MCP Tools Reference
 
 | Tool | When | What it does |
 |---|---|---|
 | \`megamemory:understand\` | Before tasks | Semantic search — returns matching concepts with children, edges, parent |
-| \`megamemory:create_concept\` | After tasks | Add new concept with summary, kind, edges, file refs |
-| \`megamemory:update_concept\` | After tasks | Patch existing concept fields |
-| \`megamemory:link\` | After tasks | Create relationship between two concepts |
-| \`megamemory:remove_concept\` | On refactor/delete | Soft-delete with reason (history preserved) |
+| \`megamemory:create_concept\` | After tasks | Add a concept (summary, kind, status, edges, file refs) |
+| \`megamemory:update_concept\` | After tasks | Patch fields, including \`status\` |
+| \`megamemory:link\` | After tasks | Create a relationship (structural or evidential provenance) |
+| \`megamemory:remove_concept\` | On refactor/delete | Soft-delete; refuses epistemic nodes unless \`treat_as_descriptive\` |
 | \`megamemory:list_roots\` | Session start | All top-level concepts with children + stats |
+| \`megamemory:provenance_trace\` | Auditing | Trace \`informed_by\` lineage — \`upstream\` (evidence a decision rests on) or \`downstream\` (impact) |
+| \`megamemory:provenance_audit\` | Auditing | \`retrospective\` (refuted/superseded/abandoned lineage) · \`frontier\` (open concepts ranked by what depends on them — what to validate next) · \`triage\` (legacy unstatused) |
 | \`megamemory:list_conflicts\` | After merge | Lists unresolved merge conflicts grouped by merge_group |
 | \`megamemory:resolve_conflict\` | During /merge | Resolve a conflict by providing verified, correct content |
 `;
@@ -100,25 +112,27 @@ Use the returned context instead of re-reading source files when possible. If no
 1. **New concepts** → megamemory:create_concept
    - name: human-readable name
    - kind: feature | module | pattern | config | decision | component
+   - status (decisions/experiments/results): open for a proposal not yet confirmed; omit for descriptive concepts that mirror code
    - summary: specific — include param names, defaults, file paths, behavior
    - why: rationale for this design
    - parent_id: parent concept slug (for nesting)
    - file_refs: relevant file paths + line ranges
-   - edges: [{to: "concept-id", relation: "depends_on|implements|calls|connects_to|configured_by", description: "why"}]
+   - edges: [{to: "concept-id", relation: "depends_on|implements|calls|connects_to|configured_by|informed_by|supersedes|contradicts", description: "why"}] (provenance relations require the rationale in description)
    - created_by_task: what task/prompt created this
 
 2. **Changed concepts** → megamemory:update_concept
    - id: the concept slug
-   - changes: {summary?, why?, file_refs?, name?, kind?}
+   - changes: {summary?, why?, file_refs?, name?, kind?, status?} (transition a decision's status — validated/refuted/superseded/abandoned — instead of deleting it)
 
 3. **New relationships** → megamemory:link
    - from, to: concept IDs
-   - relation: depends_on | implements | calls | connects_to | configured_by
-   - description: why this relationship exists
+   - relation: depends_on | implements | calls | connects_to | configured_by | informed_by | supersedes | contradicts
+   - description: why this relationship exists (required for informed_by / supersedes / contradicts)
 
-4. **Removed features** → megamemory:remove_concept
+4. **Removed / superseded** → megamemory:remove_concept
    - id: concept to remove
-   - reason: why it was removed${concepts ? `\n\nContext about what to record: "${concepts}"` : ""}`;
+   - reason: why it was removed
+   - treat_as_descriptive: set true ONLY for a genuinely descriptive concept (mirrors code, re-derivable); decisions, status-bearing nodes, and informed_by targets are refused by default — transition their status instead${concepts ? `\n\nContext about what to record: "${concepts}"` : ""}`;
 
       case "merge":
         return `To resolve merge conflicts in the knowledge graph:
