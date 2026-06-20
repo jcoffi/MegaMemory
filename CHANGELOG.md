@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.7.0 — Evidential Provenance
+
+### Features
+
+- **Evidential provenance relations** — `informed_by` (strict DAG; material evidential support), `supersedes`, `contradicts`. Authored provenance, **not** causal inference.
+- **Decision status lifecycle** — `open` · `validated` · `refuted` · `superseded` · `abandoned` (absent/NULL = legacy/unknown, never treated as validated).
+- **`provenance_trace` tool** — walk `informed_by` upstream (reasoning lineage) or downstream (impact); bounded subgraph with status, supersedes/contradicts cross-edges, and hygiene flags.
+- **`provenance_audit` tool** — `retrospective` (refuted/superseded/abandoned decisions + lineage + replacements), `frontier` (open/unvalidated concepts ranked by hub-penalized downstream dependence), `triage` (legacy NULL-status concepts that participate in provenance).
+- **Hygiene flags** — surfaces validated conclusions resting on unvalidated/refuted ancestors, broken chains, contradictions, and cycles.
+- **Refuse-and-redirect deletion** — `remove_concept` protects epistemic records (anything with a status, or that others are `informed_by`); transition status instead. `treat_as_descriptive` escape for re-derivable concepts.
+- **Edge tombstones** — removals preserve provenance lineage (`edges.removed_at`) rather than hard-deleting it.
+
+### Schema
+
+- **v5 migration** — adds `nodes.status` + `edges.removed_at` (idempotent, multi-process-safe). Backward compatible; existing graphs upgrade on first open with no re-embedding.
+
 ## 1.0.0 — Initial Release
 
 ### Features
