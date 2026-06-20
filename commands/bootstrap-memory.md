@@ -36,8 +36,9 @@ deep. Focus on things a developer would need to know when working in that area.
 ## Step 5: Link related concepts
 
 Connect concepts that interact across boundaries using `megamemory:link`.
-Focus on meaningful relationships: depends_on, calls, connects_to, implements,
-configured_by.
+Structural relationships: `depends_on`, `calls`, `connects_to`, `implements`,
+`configured_by`. Provenance relationships (see Evidential Provenance below):
+`informed_by`, `supersedes`, `contradicts`.
 
 ## Guidelines
 
@@ -49,13 +50,24 @@ configured_by.
 ## Evidential Provenance
 
 - Use `informed_by` only when a concept was materially supported by evidence,
-  assumptions, prior results, or a decision basis.
+  assumptions, prior results, or a decision basis. It records authored evidential
+  support, not causal inference, and must stay acyclic (a strict DAG — cycles are
+  rejected). Put the rationale in the edge `description`.
 - Use `supersedes` when a newer concept replaces an older one, and set the older
   concept's status to `superseded`.
 - Use `contradicts` when concepts conflict and both records should remain visible.
 - Node status values: `open`, `validated`, `refuted`, `superseded`, `abandoned`.
   New epistemic work should start as `open`; legacy NULL status means unknown,
-  not validated.
+  not validated. `validated` must be earned by explicit evidence for a stated
+  scope, never assumed.
 - Prefer status transitions such as `abandoned`, `refuted`, or `superseded` over
-  removing epistemic records. Remove only descriptive records that are clearly
-  re-derivable from the source tree.
+  removing epistemic records. `remove_concept` refuses to delete decisions,
+  status-bearing nodes, and anything other concepts are `informed_by` unless you
+  pass `treat_as_descriptive: true`; remove only descriptive records that are
+  clearly re-derivable from the source tree.
+- Reflect with the read-only tools: `megamemory:provenance_trace` (direction
+  `upstream` = the evidence a decision rests on; `downstream` = what a finding
+  influenced) and `megamemory:provenance_audit` (`retrospective` = refuted/
+  superseded/abandoned lineage; `frontier` = open concepts ranked by how much
+  depends on them, i.e. what to validate next; `triage` = legacy concepts with
+  no status).

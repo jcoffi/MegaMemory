@@ -41,30 +41,43 @@ For each thing worth remembering:
   - kind: use `decision` for intent/rationale, `feature` for capabilities,
     `module` for subsystems, `pattern` for conventions, `config` for setup,
     `component` for distinct pieces of a system
+  - status (decisions/experiments/results only): `open` for a proposal not yet
+    confirmed; omit for descriptive concepts that mirror code (see Evidential
+    Provenance below)
   - summary: be specific — include parameter names, defaults, file paths,
     behavior details, and the WHY behind things
   - why: the rationale — this is often the most valuable part
   - file_refs: relevant files if applicable
   - edges: connect to existing concepts where relationships exist
-    [{to: "concept-id", relation: "depends_on|implements|calls|connects_to|configured_by", description: "why"}]
+    [{to: "concept-id", relation: "depends_on|implements|calls|connects_to|configured_by|informed_by|supersedes|contradicts", description: "why"}]
+    Provenance relations (`informed_by`, `supersedes`, `contradicts`) require the
+    rationale in `description` — see Evidential Provenance below.
   - created_by_task: brief description of what you were doing this session
 
 **Updated understanding** → `megamemory:update_concept`
   - id: the concept slug
-  - changes: {summary?, why?, file_refs?, name?, kind?}
+  - changes: {summary?, why?, file_refs?, name?, kind?, status?}
   If an existing concept is now stale or incomplete based on what you learned,
-  update it. This is often more valuable than creating new nodes.
+  update it. This is often more valuable than creating new nodes. To change a
+  decision's epistemic state (`open` → `validated`/`refuted`/`superseded`/
+  `abandoned`), update its `status` with a `why` rather than deleting it.
 
 **New connections** → `megamemory:link`
   - from, to: concept IDs
-  - relation: depends_on | implements | calls | connects_to | configured_by
-  - description: why this relationship exists
+  - relation: depends_on | implements | calls | connects_to | configured_by |
+    informed_by | supersedes | contradicts
+  - description: why this relationship exists (required for `informed_by`,
+    `supersedes`, and `contradicts`)
   If you discovered how existing concepts relate to each other.
 
 **Removed/replaced things** → `megamemory:remove_concept`
   - id: concept to remove
   - reason: why it was removed
-  If something in the graph is no longer true.
+  - treat_as_descriptive: set `true` only for a genuinely descriptive concept
+    (mirrors code, re-derivable). Decisions, status-bearing nodes, and anything
+    other concepts are `informed_by` are refused by default — transition their
+    `status` (`abandoned`/`refuted`/`superseded`) instead of removing them.
+  If something descriptive in the graph is no longer true.
 
 ## Step 5: Verify
 
@@ -85,13 +98,24 @@ understanding. Report what you saved.
 ## Evidential Provenance
 
 - Use `informed_by` only when a concept was materially supported by evidence,
-  assumptions, prior results, or a decision basis.
+  assumptions, prior results, or a decision basis. It records authored evidential
+  support, not causal inference, and must stay acyclic (a strict DAG — cycles are
+  rejected). Put the rationale in the edge `description`.
 - Use `supersedes` when a newer concept replaces an older one, and set the older
   concept's status to `superseded`.
 - Use `contradicts` when concepts conflict and both records should remain visible.
 - Node status values: `open`, `validated`, `refuted`, `superseded`, `abandoned`.
   New epistemic work should start as `open`; legacy NULL status means unknown,
-  not validated.
+  not validated. `validated` must be earned by explicit evidence for a stated
+  scope, never assumed.
 - Prefer status transitions such as `abandoned`, `refuted`, or `superseded` over
-  removing epistemic records. Remove only descriptive records that are clearly
-  re-derivable from the source tree.
+  removing epistemic records. `remove_concept` refuses to delete decisions,
+  status-bearing nodes, and anything other concepts are `informed_by` unless you
+  pass `treat_as_descriptive: true`; remove only descriptive records that are
+  clearly re-derivable from the source tree.
+- Reflect with the read-only tools: `megamemory:provenance_trace` (direction
+  `upstream` = the evidence a decision rests on; `downstream` = what a finding
+  influenced) and `megamemory:provenance_audit` (`retrospective` = refuted/
+  superseded/abandoned lineage; `frontier` = open concepts ranked by how much
+  depends on them, i.e. what to validate next; `triage` = legacy concepts with
+  no status).
