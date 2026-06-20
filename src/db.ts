@@ -641,36 +641,35 @@ export class KnowledgeDB {
   }
 
   renameNodeId(oldId: string, newId: string): boolean {
-    // Temporarily disable foreign keys for the rename operation,
-    // since self-referencing FKs (parent_id → id) would block the update.
-    // Wrapped in a transaction so all 4 updates succeed or none do.
-    this.db.pragma("foreign_keys = OFF");
-    try {
-      let changed = false;
-      this.runInTransaction(() => {
-        const result = this.db
-          .prepare("UPDATE nodes SET id = @newId, updated_at = datetime('now') WHERE id = @oldId")
-          .run({ oldId, newId });
+    // Defer (don't disable) FK enforcement so the multi-step rename can be temporarily
+    // inconsistent. `defer_foreign_keys = ON` works INSIDE a transaction and re-checks at
+    // COMMIT — unlike `foreign_keys = OFF`, which SQLite SILENTLY IGNORES mid-transaction
+    // (e.g. when called from resolveConflict's outer runInTransaction), which would leave FK
+    // enforcement on and throw when renaming a node that has edges or children. It also
+    // auto-resets at the end of the transaction, so there is nothing to restore.
+    let changed = false;
+    this.runInTransaction(() => {
+      this.db.pragma("defer_foreign_keys = ON");
+      const result = this.db
+        .prepare("UPDATE nodes SET id = @newId, updated_at = datetime('now') WHERE id = @oldId")
+        .run({ oldId, newId });
 
-        if (result.changes > 0) {
-          changed = true;
-          // Update parent_id references in children
-          this.db
-            .prepare("UPDATE nodes SET parent_id = @newId WHERE parent_id = @oldId")
-            .run({ oldId, newId });
-          // Update edge references
-          this.db
-            .prepare("UPDATE edges SET from_id = @newId WHERE from_id = @oldId")
-            .run({ oldId, newId });
-          this.db
-            .prepare("UPDATE edges SET to_id = @newId WHERE to_id = @oldId")
-            .run({ oldId, newId });
-        }
-      });
-      return changed;
-    } finally {
-      this.db.pragma("foreign_keys = ON");
-    }
+      if (result.changes > 0) {
+        changed = true;
+        // Update parent_id references in children
+        this.db
+          .prepare("UPDATE nodes SET parent_id = @newId WHERE parent_id = @oldId")
+          .run({ oldId, newId });
+        // Update edge references
+        this.db
+          .prepare("UPDATE edges SET from_id = @newId WHERE from_id = @oldId")
+          .run({ oldId, newId });
+        this.db
+          .prepare("UPDATE edges SET to_id = @newId WHERE to_id = @oldId")
+          .run({ oldId, newId });
+      }
+    });
+    return changed;
   }
 
   getAllNodesRaw(): NodeRow[] {

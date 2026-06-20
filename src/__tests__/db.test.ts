@@ -1077,6 +1077,33 @@ describe("KnowledgeDB", () => {
       expect(edges[0].from_id).toBe("new-id");
     });
 
+    it("renameNodeId on an edge-bearing node succeeds inside an outer transaction (deferred FK)", () => {
+      db.insertNode({
+        id: "old-edged", name: "Old", kind: "decision", summary: "s",
+        why: null, file_refs: null, parent_id: null, created_by_task: null, embedding: null,
+      });
+      db.insertNode({
+        id: "evidence", name: "Ev", kind: "feature", summary: "s",
+        why: null, file_refs: null, parent_id: null, created_by_task: null, embedding: null,
+      });
+      db.insertEdge({ from_id: "old-edged", to_id: "evidence", relation: "informed_by", description: "x" });
+
+      // resolveConflict renames inside an outer transaction; `foreign_keys = OFF` is a no-op
+      // there, so without deferred FK this FK-throws on the edge-bearing node.
+      expect(() =>
+        db.runInTransaction(() => {
+          expect(db.renameNodeId("old-edged", "new-edged")).toBe(true);
+        })
+      ).not.toThrow();
+
+      expect(db.getNode("old-edged")).toBeUndefined();
+      expect(db.getNode("new-edged")).toBeDefined();
+      const edges = db.getOutgoingEdges("new-edged");
+      expect(edges).toHaveLength(1);
+      expect(edges[0].from_id).toBe("new-edged");
+      expect(edges[0].to_id).toBe("evidence");
+    });
+
     it("hardDeleteNode removes node and its edges permanently", () => {
       db.insertNode({
         id: "to-hard-delete", name: "Del", kind: "feature", summary: "s",
