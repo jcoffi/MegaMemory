@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import pc from "picocolors";
 import { success, skip, error, info, heading, warn, multiSelect } from "./cli-utils.js";
+import { INSTRUCTION_VERSION, INSTRUCTIONS_VERSION_ENV } from "./instruction-version.js";
 
 export type InstallTarget = "opencode" | "claudecode" | "antigravity" | "codex";
 
@@ -49,10 +50,16 @@ const CODEX_DIR = path.join(os.homedir(), ".codex");
 const CODEX_CONFIG_PATH = path.join(CODEX_DIR, "config.toml");
 const CODEX_AGENTS_MD_PATH = path.join(CODEX_DIR, "AGENTS.md");
 
+const INSTRUCTION_BLOCK_BEGIN_PREFIX = "<!-- megamemory:instructions begin";
+const INSTRUCTION_BLOCK_BEGIN = `${INSTRUCTION_BLOCK_BEGIN_PREFIX} ${INSTRUCTION_VERSION} -->`;
+const INSTRUCTION_BLOCK_END = "<!-- megamemory:instructions end -->";
 const AGENTS_MD_MARKER = "## Project Knowledge Graph";
 
 const AGENTS_MD_SNIPPET = `
+${INSTRUCTION_BLOCK_BEGIN}
 ## Project Knowledge Graph
+
+MegaMemory instruction version: ${INSTRUCTION_VERSION}
 
 You have access to a project knowledge graph via the \`megamemory\` MCP server and skill tool. You have no implicit memory of this project between sessions, so this graph is your only continuity for concepts, architecture, decisions, and relationships.
 
@@ -62,7 +69,16 @@ You have access to a project knowledge graph via the \`megamemory\` MCP server a
 2. **Before each task:** You must call \`megamemory\` with action \`query\` (or \`megamemory:understand\` directly) before reading source files for project understanding.
 3. **After each task:** You must call \`megamemory\` with action \`record\` to create/update/link concepts for what you built.
 
+**Evidential provenance discipline:**
+
+- Use \`informed_by\` only when a concept was materially supported by evidence, assumptions, prior results, or a decision basis.
+- Use \`supersedes\` when a newer concept replaces an older one; set the older concept's status to \`superseded\`.
+- Use \`contradicts\` when concepts conflict and both records should remain visible.
+- Node status values: open, validated, refuted, superseded, abandoned. New epistemic work should start as \`open\`; legacy NULL status means unknown, not validated.
+- Do not remove epistemic records just because they are stale. Update their status to \`abandoned\`, \`refuted\`, or \`superseded\` unless the node is explicitly descriptive and re-derivable from source files.
+
 Be specific in summaries: include parameter names, defaults, file locations, and rationale. Keep concepts max 3 levels deep.
+${INSTRUCTION_BLOCK_END}
 `;
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -208,17 +224,53 @@ async function detectCodexCli(): Promise<boolean> {
   }
 }
 
+function nextHeadingIndex(content: string, from: number): number {
+  const match = content.slice(from).match(/\n## /);
+  return match?.index === undefined ? -1 : from + match.index;
+}
+
+function replaceOrAppendInstructionBlock(content: string): string {
+  const snippet = AGENTS_MD_SNIPPET.trim();
+  const blockStart = content.indexOf(INSTRUCTION_BLOCK_BEGIN_PREFIX);
+  if (blockStart !== -1) {
+    const blockEnd = content.indexOf(INSTRUCTION_BLOCK_END, blockStart);
+    if (blockEnd !== -1) {
+      return (
+        content.slice(0, blockStart).trimEnd() +
+        "\n\n" +
+        snippet +
+        content.slice(blockEnd + INSTRUCTION_BLOCK_END.length)
+      );
+    }
+  }
+
+  const legacyStart = content.indexOf(AGENTS_MD_MARKER);
+  if (legacyStart !== -1) {
+    const legacyEnd = nextHeadingIndex(content, legacyStart + AGENTS_MD_MARKER.length);
+    return (
+      content.slice(0, legacyStart).trimEnd() +
+      "\n\n" +
+      snippet +
+      (legacyEnd === -1 ? "" : content.slice(legacyEnd))
+    );
+  }
+
+  const separator = content.trim().length === 0 ? "" : content.endsWith("\n") ? "\n" : "\n\n";
+  return content + separator + snippet + "\n";
+}
+
 function setupInstructionFile(filePath: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 
   if (fs.existsSync(filePath)) {
     const content = fs.readFileSync(filePath, "utf-8");
-    if (content.includes(AGENTS_MD_MARKER)) {
-      skip(`Already contains knowledge graph instructions`);
+    const updated = replaceOrAppendInstructionBlock(content);
+    if (updated === content) {
+      skip(`Knowledge graph instructions already up to date`);
       return;
     }
-    fs.appendFileSync(filePath, "\n" + AGENTS_MD_SNIPPET.trimStart());
-    success(`Appended knowledge graph instructions to ${pc.dim(filePath)}`);
+    fs.writeFileSync(filePath, updated.endsWith("\n") ? updated : updated + "\n");
+    success(`Updated knowledge graph instructions in ${pc.dim(filePath)}`);
     return;
   }
 
@@ -310,6 +362,7 @@ async function setupOpencodeMcpConfig(runtime: CommandRuntime): Promise<void> {
     type: "local",
     command: runtime.opencodeCommand,
     enabled: true,
+    environment: { [INSTRUCTIONS_VERSION_ENV]: INSTRUCTION_VERSION },
   };
   config["mcp"] = mcp;
 
@@ -353,6 +406,7 @@ async function setupClaudeConfig(runtime: CommandRuntime): Promise<void> {
     type: "stdio",
     command: runtime.stdioCommand,
     args: runtime.stdioArgs,
+    env: { [INSTRUCTIONS_VERSION_ENV]: INSTRUCTION_VERSION },
   };
   config["mcpServers"] = mcpServers;
 
@@ -388,6 +442,7 @@ async function setupAntigravityConfig(runtime: CommandRuntime): Promise<void> {
   mcpServers["megamemory"] = {
     command: runtime.stdioCommand,
     args: runtime.stdioArgs,
+    env: { [INSTRUCTIONS_VERSION_ENV]: INSTRUCTION_VERSION },
   };
   config["mcpServers"] = mcpServers;
 
@@ -401,14 +456,15 @@ async function setupAntigravityConfig(runtime: CommandRuntime): Promise<void> {
   info(`Command: ${pc.cyan(JSON.stringify([runtime.stdioCommand, ...runtime.stdioArgs]))}`);
 }
 
-function buildCodexToml(runtime: CommandRuntime): string {
+export function buildCodexToml(runtime: CommandRuntime): string {
   const escapedCommand = runtime.stdioCommand.replace(/\\/g, "\\\\");
   const escapedArgs = runtime.stdioArgs.map((a) => a.replace(/\\/g, "\\\\"));
   const argsToml =
     escapedArgs.length === 0
       ? "[]"
       : `[${escapedArgs.map((a) => `"${a}"`).join(", ")}]`;
-  return `[mcp_servers.megamemory]\ncommand = "${escapedCommand}"\nargs = ${argsToml}\n`;
+  const envToml = `env = { ${INSTRUCTIONS_VERSION_ENV} = "${INSTRUCTION_VERSION}" }`;
+  return `[mcp_servers.megamemory]\ncommand = "${escapedCommand}"\nargs = ${argsToml}\n${envToml}\n`;
 }
 
 function replaceOrAppendTomlSection(

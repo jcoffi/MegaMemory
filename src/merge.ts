@@ -46,6 +46,9 @@ export function nodesAreIdentical(left: NodeRow, right: NodeRow): boolean {
   if (left.summary !== right.summary) return false;
   if ((left.why ?? "") !== (right.why ?? "")) return false;
   if ((left.parent_id ?? "") !== (right.parent_id ?? "")) return false;
+  // §3.2: status divergence (e.g. open vs refuted) must surface as a conflict,
+  // never be silently dropped. Missing/undefined is normalized to null.
+  if ((left.status ?? null) !== (right.status ?? null)) return false;
 
   // Deep-compare file_refs (stored as JSON strings)
   const leftRefs = left.file_refs ? JSON.parse(left.file_refs) : null;
@@ -180,6 +183,7 @@ export class MergeEngine {
       relation: string;
       description: string | null;
       created_at: string | null;
+      removed_at: string | null;
       merge_group: string | null;
       needs_merge: number;
       source_branch: string | null;
@@ -210,6 +214,7 @@ export class MergeEngine {
         relation: e.relation,
         description: e.description,
         created_at: e.created_at,
+        removed_at: e.removed_at,
         merge_group: e.merge_group,
         needs_merge: e.needs_merge,
         source_branch: e.source_branch,
@@ -332,6 +337,7 @@ export class MergeEngine {
               relation: e.relation,
               description: e.description,
               created_at: e.created_at,
+              removed_at: e.removed_at,
               merge_group: edgesConflict ? mergeGroup : null,
               needs_merge: edgesConflict ? 1 : 0,
               source_branch: edgesConflict ? leftLabel : null,
@@ -347,6 +353,7 @@ export class MergeEngine {
               relation: e.relation,
               description: e.description,
               created_at: e.created_at,
+              removed_at: e.removed_at,
               merge_group: edgesConflict ? mergeGroup : null,
               needs_merge: edgesConflict ? 1 : 0,
               source_branch: edgesConflict ? rightLabel : null,
@@ -380,6 +387,55 @@ export class MergeEngine {
       }
     }
 
+    // ---- POST-BATCH: atomic union informed_by DAG check (design §2.1) ----
+    // Two individually-acyclic inputs can union into a cycle. Detect cycles in the
+    // merged ACTIVE informed_by projection (using the final, remapped target ids)
+    // and flag the participating edges needs_merge — never abort the merge.
+    const remapTo = (edge: DeferredEdge): string =>
+      idRemapping.get(`${edge._originSide}:${edge.to_id}`) ?? edge.to_id;
+
+    const informedAdj = new Map<string, string[]>();
+    const activeInformed: Array<{ edge: DeferredEdge; from: string; to: string }> = [];
+    for (const edge of deferredEdges) {
+      if (edge.relation !== "informed_by" || edge.removed_at !== null) continue;
+      const from = edge.from_id;
+      const to = remapTo(edge);
+      if (!informedAdj.has(from)) informedAdj.set(from, []);
+      informedAdj.get(from)!.push(to);
+      activeInformed.push({ edge, from, to });
+    }
+
+    const informedReaches = (start: string, target: string): boolean => {
+      const seen = new Set<string>();
+      const stack: string[] = [start];
+      while (stack.length > 0) {
+        const cur = stack.pop()!;
+        for (const next of informedAdj.get(cur) ?? []) {
+          if (next === target) return true;
+          if (!seen.has(next)) {
+            seen.add(next);
+            stack.push(next);
+          }
+        }
+      }
+      return false;
+    };
+
+    let cycleGroup: string | null = null;
+    for (const { edge, from, to } of activeInformed) {
+      // from->to closes a cycle iff it is a self-loop or `to` already reaches `from`.
+      if (from === to || informedReaches(to, from)) {
+        if (cycleGroup === null) {
+          cycleGroup = randomUUID();
+          result.mergeGroups.push(cycleGroup);
+        }
+        edge.needs_merge = 1;
+        edge.merge_group = edge.merge_group ?? cycleGroup;
+        edge.source_branch = edge.source_branch ?? "informed_by-cycle";
+        edge.merge_timestamp = edge.merge_timestamp ?? now;
+      }
+    }
+
     // Now insert all deferred edges, remapping target IDs where needed
     for (const edge of deferredEdges) {
       // Remap to_id if the target was conflicted — use _originSide to determine
@@ -393,6 +449,7 @@ export class MergeEngine {
         relation: edge.relation,
         description: edge.description,
         created_at: edge.created_at,
+        removed_at: edge.removed_at,
         merge_group: edge.merge_group,
         needs_merge: edge.needs_merge,
         source_branch: edge.source_branch,
@@ -461,6 +518,7 @@ export class MergeEngine {
     deferred: Array<{
       from_id: string; to_id: string; relation: string;
       description: string | null; created_at: string | null;
+      removed_at: string | null;
       merge_group: string | null; needs_merge: number;
       source_branch: string | null; merge_timestamp: string | null;
       _originSide: "left" | "right";
@@ -478,6 +536,7 @@ export class MergeEngine {
         relation: e.relation,
         description: e.description,
         created_at: e.created_at,
+        removed_at: e.removed_at,
         merge_group: null,
         needs_merge: 0,
         source_branch: null,
@@ -494,6 +553,7 @@ export class MergeEngine {
     deferred: Array<{
       from_id: string; to_id: string; relation: string;
       description: string | null; created_at: string | null;
+      removed_at: string | null;
       merge_group: string | null; needs_merge: number;
       source_branch: string | null; merge_timestamp: string | null;
       _originSide: "left" | "right";
@@ -520,6 +580,7 @@ export class MergeEngine {
         relation: e.relation,
         description: e.description,
         created_at: e.created_at,
+        removed_at: e.removed_at,
         merge_group: null,
         needs_merge: 0,
         source_branch: null,
@@ -539,6 +600,7 @@ export class MergeEngine {
         relation: e.relation,
         description: e.description,
         created_at: e.created_at,
+        removed_at: e.removed_at,
         merge_group: null,
         needs_merge: 0,
         source_branch: null,

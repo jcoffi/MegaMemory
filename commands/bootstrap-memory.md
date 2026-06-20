@@ -45,3 +45,17 @@ configured_by.
   /auth/login, validated in middleware, refresh tokens in Redis with 7d TTL" is useful.
 - Focus on the top 10-15 most important concepts first. The graph grows over time.
 - Don't document trivial things. If it's obvious from the file name, skip it.
+
+## Evidential Provenance
+
+- Use `informed_by` only when a concept was materially supported by evidence,
+  assumptions, prior results, or a decision basis.
+- Use `supersedes` when a newer concept replaces an older one, and set the older
+  concept's status to `superseded`.
+- Use `contradicts` when concepts conflict and both records should remain visible.
+- Node status values: `open`, `validated`, `refuted`, `superseded`, `abandoned`.
+  New epistemic work should start as `open`; legacy NULL status means unknown,
+  not validated.
+- Prefer status transitions such as `abandoned`, `refuted`, or `superseded` over
+  removing epistemic records. Remove only descriptive records that are clearly
+  re-derivable from the source tree.

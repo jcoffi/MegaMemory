@@ -454,10 +454,36 @@ describe("KnowledgeDB timeline", () => {
 
       expect(pairs).not.toContain("node-a->node-b");
     });
+
+    it("getEdgesAtTime includes an edge tombstoned after the timestamp", () => {
+      // Regression: getEdgesAtTime must mirror getNodesAtTime — an edge active at
+      // the snapshot but tombstoned later belongs in that snapshot.
+      db.insertNodeRaw({
+        id: "tt-x", name: "X", kind: "feature", summary: "x",
+        created_at: "2026-02-10 10:00:00", updated_at: "2026-02-10 10:00:00",
+      });
+      db.insertNodeRaw({
+        id: "tt-y", name: "Y", kind: "feature", summary: "y",
+        created_at: "2026-02-10 10:00:00", updated_at: "2026-02-10 10:00:00",
+      });
+      db.insertEdgeRaw({
+        from_id: "tt-x", to_id: "tt-y", relation: "calls",
+        created_at: "2026-02-10 10:30:00", removed_at: "2026-02-10 13:00:00",
+      });
+
+      // 12:00 — edge still active -> included.
+      expect(
+        db.getEdgesAtTime("2026-02-10 12:00:00").map((e) => `${e.from_id}->${e.to_id}`)
+      ).toContain("tt-x->tt-y");
+      // 14:00 — edge already tombstoned -> excluded.
+      expect(
+        db.getEdgesAtTime("2026-02-10 14:00:00").map((e) => `${e.from_id}->${e.to_id}`)
+      ).not.toContain("tt-x->tt-y");
+    });
   });
 
   describe("schema migration", () => {
-    it("verifies schema version is 4", () => {
+    it("verifies schema version is 5", () => {
       const rawDb = new Database(dbPath);
       const pragmaResult = rawDb.pragma("user_version", { simple: true }) as
         | number
@@ -468,7 +494,7 @@ describe("KnowledgeDB timeline", () => {
         typeof pragmaResult === "object"
           ? pragmaResult.user_version
           : pragmaResult;
-      expect(version).toBe(4);
+      expect(version).toBe(5);
     });
 
     it("verifies timeline table exists with correct columns", () => {

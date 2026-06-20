@@ -1,9 +1,9 @@
 import Database from "libsql";
 import path from "path";
 import fs from "fs";
-import type { NodeRow, EdgeRow } from "./types.js";
+import type { NodeRow, EdgeRow, NodeStatus } from "./types.js";
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export class KnowledgeDB {
   private db: Database.Database;
@@ -169,6 +169,32 @@ export class KnowledgeDB {
         `);
       }
 
+      if (currentVersion < 5) {
+        // Evidential provenance (design §2.2/§2.3/§3.1):
+        //   - nodes.status: node epistemic status (nullable, NO DEFAULT — NULL = legacy/unknown)
+        //   - edges.removed_at: edge tombstone column so node removal preserves lineage
+        // Both ALTERs are additive and idempotent (guarded by a column-presence check),
+        // running inside the existing BEGIN IMMEDIATE + post-lock re-check above.
+        const nodeColumns = this.db
+          .prepare("PRAGMA table_info(nodes)")
+          .all() as Array<{ name: string }>;
+        const nodeColNames = new Set(nodeColumns.map((c) => c.name));
+        if (!nodeColNames.has("status")) {
+          this.db.exec("ALTER TABLE nodes ADD COLUMN status TEXT");
+        }
+
+        const edgeColumns = this.db
+          .prepare("PRAGMA table_info(edges)")
+          .all() as Array<{ name: string }>;
+        const edgeColNames = new Set(edgeColumns.map((c) => c.name));
+        if (!edgeColNames.has("removed_at")) {
+          this.db.exec(
+            "ALTER TABLE edges ADD COLUMN removed_at TEXT;" +
+              "CREATE INDEX IF NOT EXISTS idx_edges_removed ON edges(removed_at);"
+          );
+        }
+      }
+
       this.db.pragma(`user_version = ${SCHEMA_VERSION}`);
       this.db.exec("COMMIT");
     } catch (err) {
@@ -236,10 +262,11 @@ export class KnowledgeDB {
     parent_id?: string | null;
     created_by_task?: string | null;
     embedding?: Buffer | null;
+    status?: NodeStatus | null;
   }): void {
     const stmt = this.db.prepare(`
-      INSERT INTO nodes (id, name, kind, summary, why, file_refs, parent_id, created_by_task, embedding)
-      VALUES (@id, @name, @kind, @summary, @why, @file_refs, @parent_id, @created_by_task, @embedding)
+      INSERT INTO nodes (id, name, kind, summary, why, file_refs, parent_id, created_by_task, embedding, status)
+      VALUES (@id, @name, @kind, @summary, @why, @file_refs, @parent_id, @created_by_task, @embedding, @status)
     `);
     stmt.run({
       id: node.id,
@@ -251,6 +278,7 @@ export class KnowledgeDB {
       parent_id: node.parent_id ?? null,
       created_by_task: node.created_by_task ?? null,
       embedding: node.embedding ?? null,
+      status: node.status ?? null,
     });
   }
 
@@ -265,6 +293,7 @@ export class KnowledgeDB {
       parent_id: string | null;
       created_by_task: string | null;
       embedding: Buffer | null;
+      status?: NodeStatus | null;
     },
     edges: Array<{ to_id: string; relation: string; description: string | null }>
   ): void {
@@ -281,6 +310,7 @@ export class KnowledgeDB {
         parent_id: node.parent_id,
         created_by_task: node.created_by_task,
         embedding: node.embedding,
+        status: node.status,
       });
 
       for (const edge of edges) {
@@ -317,6 +347,7 @@ export class KnowledgeDB {
       why?: string;
       file_refs?: string[];
       embedding?: Buffer;
+      status?: NodeStatus;
     }
   ): boolean {
     const fields: string[] = [];
@@ -346,6 +377,10 @@ export class KnowledgeDB {
       fields.push("embedding = @embedding");
       values.embedding = changes.embedding;
     }
+    if (changes.status !== undefined) {
+      fields.push("status = @status");
+      values.status = changes.status;
+    }
 
     if (fields.length === 0) return false;
 
@@ -369,8 +404,12 @@ export class KnowledgeDB {
 
       if (result.changes > 0) {
         changed = true;
+        // Tombstone (not physically delete) incident edges so provenance lineage
+        // is preserved (design §2.3). Normal reads filter removed_at IS NULL.
         this.db
-          .prepare("DELETE FROM edges WHERE from_id = ? OR to_id = ?")
+          .prepare(
+            "UPDATE edges SET removed_at = datetime('now') WHERE (from_id = ? OR to_id = ?) AND removed_at IS NULL"
+          )
           .run(id, id);
       }
     });
@@ -429,7 +468,7 @@ export class KnowledgeDB {
       SELECT e.*, n.name as to_name, n.summary as to_summary
       FROM edges e
       JOIN nodes n ON e.to_id = n.id
-      WHERE e.from_id = ? AND n.removed_at IS NULL
+      WHERE e.from_id = ? AND n.removed_at IS NULL AND e.removed_at IS NULL
     `
       )
       .all(nodeId) as Array<EdgeRow & { to_name: string; to_summary: string }>;
@@ -444,7 +483,7 @@ export class KnowledgeDB {
       SELECT e.*, n.name as from_name, n.summary as from_summary
       FROM edges e
       JOIN nodes n ON e.from_id = n.id
-      WHERE e.to_id = ? AND n.removed_at IS NULL
+      WHERE e.to_id = ? AND n.removed_at IS NULL AND e.removed_at IS NULL
     `
       )
       .all(nodeId) as Array<
@@ -513,7 +552,7 @@ export class KnowledgeDB {
          FROM edges e
          JOIN nodes n1 ON e.from_id = n1.id
          JOIN nodes n2 ON e.to_id = n2.id
-         WHERE n1.removed_at IS NULL AND n2.removed_at IS NULL`
+         WHERE n1.removed_at IS NULL AND n2.removed_at IS NULL AND e.removed_at IS NULL`
       )
       .all() as EdgeRow[];
   }
@@ -538,7 +577,9 @@ export class KnowledgeDB {
         .get() as { count: number }
     ).count;
     const edges = (
-      this.db.prepare("SELECT COUNT(*) as count FROM edges").get() as {
+      this.db
+        .prepare("SELECT COUNT(*) as count FROM edges WHERE removed_at IS NULL")
+        .get() as {
         count: number;
       }
     ).count;
@@ -600,36 +641,35 @@ export class KnowledgeDB {
   }
 
   renameNodeId(oldId: string, newId: string): boolean {
-    // Temporarily disable foreign keys for the rename operation,
-    // since self-referencing FKs (parent_id → id) would block the update.
-    // Wrapped in a transaction so all 4 updates succeed or none do.
-    this.db.pragma("foreign_keys = OFF");
-    try {
-      let changed = false;
-      this.runInTransaction(() => {
-        const result = this.db
-          .prepare("UPDATE nodes SET id = @newId, updated_at = datetime('now') WHERE id = @oldId")
-          .run({ oldId, newId });
+    // Defer (don't disable) FK enforcement so the multi-step rename can be temporarily
+    // inconsistent. `defer_foreign_keys = ON` works INSIDE a transaction and re-checks at
+    // COMMIT — unlike `foreign_keys = OFF`, which SQLite SILENTLY IGNORES mid-transaction
+    // (e.g. when called from resolveConflict's outer runInTransaction), which would leave FK
+    // enforcement on and throw when renaming a node that has edges or children. It also
+    // auto-resets at the end of the transaction, so there is nothing to restore.
+    let changed = false;
+    this.runInTransaction(() => {
+      this.db.pragma("defer_foreign_keys = ON");
+      const result = this.db
+        .prepare("UPDATE nodes SET id = @newId, updated_at = datetime('now') WHERE id = @oldId")
+        .run({ oldId, newId });
 
-        if (result.changes > 0) {
-          changed = true;
-          // Update parent_id references in children
-          this.db
-            .prepare("UPDATE nodes SET parent_id = @newId WHERE parent_id = @oldId")
-            .run({ oldId, newId });
-          // Update edge references
-          this.db
-            .prepare("UPDATE edges SET from_id = @newId WHERE from_id = @oldId")
-            .run({ oldId, newId });
-          this.db
-            .prepare("UPDATE edges SET to_id = @newId WHERE to_id = @oldId")
-            .run({ oldId, newId });
-        }
-      });
-      return changed;
-    } finally {
-      this.db.pragma("foreign_keys = ON");
-    }
+      if (result.changes > 0) {
+        changed = true;
+        // Update parent_id references in children
+        this.db
+          .prepare("UPDATE nodes SET parent_id = @newId WHERE parent_id = @oldId")
+          .run({ oldId, newId });
+        // Update edge references
+        this.db
+          .prepare("UPDATE edges SET from_id = @newId WHERE from_id = @oldId")
+          .run({ oldId, newId });
+        this.db
+          .prepare("UPDATE edges SET to_id = @newId WHERE to_id = @oldId")
+          .run({ oldId, newId });
+      }
+    });
+    return changed;
   }
 
   getAllNodesRaw(): NodeRow[] {
@@ -638,6 +678,172 @@ export class KnowledgeDB {
 
   getAllEdgesRaw(): EdgeRow[] {
     return this.db.prepare("SELECT * FROM edges").all() as EdgeRow[];
+  }
+
+  // ---- Provenance (informed_by) traversal reads ----
+
+  /**
+   * One-hop `informed_by` adjacency for a frontier of node ids (design §5.1, B3).
+   *
+   * - `direction: "upstream"`  → out-edges (from_id IN ids): ancestry/reasoning lineage.
+   * - `direction: "downstream"`→ in-edges  (to_id IN ids):   impact/blast radius.
+   *
+   * Only the `informed_by` projection is traversed; `parent_id` and other relations
+   * are never followed. The result is a flat, referentially-closed adjacency: every
+   * node referenced by a returned edge is present in `nodes` (never a dangling edge).
+   *
+   * `includeRemoved=false` (default): only active edges between active nodes.
+   * `includeRemoved=true` (retrospective): tombstoned edges are included and a
+   * tombstoned/removed endpoint node is returned as a stub so closure is preserved.
+   */
+  getProvenanceEdges(
+    ids: string[],
+    opts: { direction: "upstream" | "downstream"; includeRemoved?: boolean }
+  ): { nodes: NodeRow[]; edges: EdgeRow[] } {
+    if (ids.length === 0) return { nodes: [], edges: [] };
+
+    const includeRemoved = opts.includeRemoved ?? false;
+    const anchorCol = opts.direction === "upstream" ? "from_id" : "to_id";
+    const idPlaceholders = ids.map(() => "?").join(",");
+    const edgeRemovedFilter = includeRemoved ? "" : " AND removed_at IS NULL";
+
+    const candidateEdges = this.db
+      .prepare(
+        `SELECT * FROM edges WHERE relation = 'informed_by' AND ${anchorCol} IN (${idPlaceholders})${edgeRemovedFilter}`
+      )
+      .all(...ids) as EdgeRow[];
+
+    if (candidateEdges.length === 0) return { nodes: [], edges: [] };
+
+    // Resolve every referenced endpoint node (both ends) for referential closure.
+    const referenced = new Set<string>();
+    for (const e of candidateEdges) {
+      referenced.add(e.from_id);
+      referenced.add(e.to_id);
+    }
+    const refIds = [...referenced];
+    const nodePlaceholders = refIds.map(() => "?").join(",");
+    const nodeRemovedFilter = includeRemoved ? "" : " AND removed_at IS NULL";
+    const nodes = this.db
+      .prepare(
+        `SELECT * FROM nodes WHERE id IN (${nodePlaceholders})${nodeRemovedFilter}`
+      )
+      .all(...refIds) as NodeRow[];
+
+    // Drop any edge whose endpoint was filtered out — never emit a dangling edge.
+    const resolved = new Set(nodes.map((n) => n.id));
+    const edges = candidateEdges.filter(
+      (e) => resolved.has(e.from_id) && resolved.has(e.to_id)
+    );
+
+    // Keep only nodes still referenced by a surviving edge.
+    const survivingRefs = new Set<string>();
+    for (const e of edges) {
+      survivingRefs.add(e.from_id);
+      survivingRefs.add(e.to_id);
+    }
+    return {
+      nodes: nodes.filter((n) => survivingRefs.has(n.id)),
+      edges,
+    };
+  }
+
+  /**
+   * True if `to` is reachable from `from` by following active `informed_by`
+   * out-edges (`from` → ... → `to`). Other relations and tombstoned edges are
+   * never traversed; `parent_id` is excluded. The visited set makes traversal
+   * safe against legacy/corrupt cycles; a self-path is only reported when a real
+   * cycle leads back to `from`.
+   */
+  informedByReaches(from: string, to: string): boolean {
+    const stmt = this.db.prepare(
+      "SELECT to_id FROM edges WHERE from_id = ? AND relation = 'informed_by' AND removed_at IS NULL"
+    );
+    const visited = new Set<string>();
+    const stack: string[] = [from];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      const outs = stmt.all(cur) as Array<{ to_id: string }>;
+      for (const { to_id } of outs) {
+        if (to_id === to) return true;
+        if (!visited.has(to_id)) {
+          visited.add(to_id);
+          stack.push(to_id);
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * True if adding `from informed_by to` would violate the strict `informed_by`
+   * DAG invariant (§2.1): a self-loop (`from === to`), or an existing active
+   * `informed_by` path `to` → ... → `from` that the new edge would close.
+   */
+  wouldCreateCycle(from: string, to: string): boolean {
+    if (from === to) return true;
+    return this.informedByReaches(to, from);
+  }
+
+  /**
+   * Read-time epistemic-participation guard for remove_concept (design §4.4).
+   * A node is epistemically protected (must not be silently removed) if ANY of:
+   *   - it has a non-null `status` (an epistemic record);
+   *   - `kind === 'decision'` (legacy fallback before status existed);
+   *   - it has an active incoming `informed_by` edge (evidence depended upon);
+   *   - it is a legacy `status IS NULL` node with an active outgoing `informed_by`
+   *     edge (a legacy conclusion/result that has ancestry);
+   *   - it is an endpoint (either direction) of an active `contradicts`/`supersedes`
+   *     discourse edge.
+   * All edge lookups require `removed_at IS NULL`. `reasons` lists the stable
+   * identifiers of every condition that matched (empty ⇒ not protected).
+   */
+  isEpistemicallyProtected(id: string): {
+    protected: boolean;
+    reasons: string[];
+  } {
+    const reasons: string[] = [];
+    const node = this.getNodeIncludingRemoved(id);
+    if (!node) return { protected: false, reasons };
+
+    if (node.status !== null && node.status !== undefined) {
+      reasons.push("status_set");
+    }
+    if (node.kind === "decision") {
+      reasons.push("decision_kind");
+    }
+
+    const incomingInformedBy = this.db
+      .prepare(
+        "SELECT 1 FROM edges WHERE to_id = ? AND relation = 'informed_by' AND removed_at IS NULL LIMIT 1"
+      )
+      .get(id);
+    if (incomingInformedBy) reasons.push("incoming_informed_by");
+
+    if (node.status === null || node.status === undefined) {
+      const outgoingInformedBy = this.db
+        .prepare(
+          "SELECT 1 FROM edges WHERE from_id = ? AND relation = 'informed_by' AND removed_at IS NULL LIMIT 1"
+        )
+        .get(id);
+      if (outgoingInformedBy) reasons.push("legacy_outgoing_informed_by");
+    }
+
+    const contradictsEndpoint = this.db
+      .prepare(
+        "SELECT 1 FROM edges WHERE (from_id = ? OR to_id = ?) AND relation = 'contradicts' AND removed_at IS NULL LIMIT 1"
+      )
+      .get(id, id);
+    if (contradictsEndpoint) reasons.push("contradicts_endpoint");
+
+    const supersedesEndpoint = this.db
+      .prepare(
+        "SELECT 1 FROM edges WHERE (from_id = ? OR to_id = ?) AND relation = 'supersedes' AND removed_at IS NULL LIMIT 1"
+      )
+      .get(id, id);
+    if (supersedesEndpoint) reasons.push("supersedes_endpoint");
+
+    return { protected: reasons.length > 0, reasons };
   }
 
   deleteEdgesForNode(nodeId: string): void {
@@ -712,15 +918,16 @@ export class KnowledgeDB {
     relation: string;
     description?: string | null;
     created_at?: string | null;
+    removed_at?: string | null;
     merge_group?: string | null;
     needs_merge?: number;
     source_branch?: string | null;
     merge_timestamp?: string | null;
   }): number {
     const stmt = this.db.prepare(`
-      INSERT OR IGNORE INTO edges (from_id, to_id, relation, description, created_at,
+      INSERT OR IGNORE INTO edges (from_id, to_id, relation, description, created_at, removed_at,
         merge_group, needs_merge, source_branch, merge_timestamp)
-      VALUES (@from_id, @to_id, @relation, @description, @created_at,
+      VALUES (@from_id, @to_id, @relation, @description, @created_at, @removed_at,
         @merge_group, @needs_merge, @source_branch, @merge_timestamp)
     `);
     const result = stmt.run({
@@ -729,6 +936,7 @@ export class KnowledgeDB {
       relation: edge.relation,
       description: edge.description ?? null,
       created_at: edge.created_at ?? null,
+      removed_at: edge.removed_at ?? null,
       merge_group: edge.merge_group ?? null,
       needs_merge: edge.needs_merge ?? 0,
       source_branch: edge.source_branch ?? null,
@@ -903,6 +1111,7 @@ export class KnowledgeDB {
       INNER JOIN nodes nf ON e.from_id = nf.id
       INNER JOIN nodes nt ON e.to_id = nt.id
       WHERE e.created_at <= @timestamp
+        AND (e.removed_at IS NULL OR e.removed_at > @timestamp)
         AND nf.created_at <= @timestamp
         AND nt.created_at <= @timestamp
         AND (nf.removed_at IS NULL OR nf.removed_at > @timestamp)

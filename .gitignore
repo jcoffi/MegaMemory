@@ -9,3 +9,4 @@ dist/
 .osgrep
 coverage/
 debug/
+.worktrees/
