@@ -506,7 +506,7 @@ export async function registerTools(
     {
       id: z.string().describe("The concept ID to remove"),
       reason: z.string().describe("Why this concept is being removed"),
-      treat_as_descriptive: z.boolean().optional().describe("Set true only to confirm this concept is descriptive — it mirrors code and is re-derivable — so it may be removed even though it participates in provenance relations. Epistemic records (anything with a status, or that other concepts are `informed_by`) stay protected regardless; transition their status instead of removing them."),
+      treat_as_descriptive: z.boolean().optional().describe("Set true only for a genuinely descriptive concept (mirrors code, re-derivable) so it may be removed even though other concepts are `informed_by` it — those edges are tombstoned, not lost. Concepts that carry a status, or are a `decision`, stay protected regardless of this flag; transition their status with update_concept instead."),
     },
     async (params) => {
       try {

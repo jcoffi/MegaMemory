@@ -169,6 +169,23 @@ describe("tools remove_concept epistemic guard", () => {
     expect(removed.message).toContain("Removed concept");
     expect(db.getNodeIncludingRemoved("evidence")?.removed_at).not.toBeNull();
   });
+
+  it("treat_as_descriptive does NOT override a status-bearing or decision node (F1/§4.4)", () => {
+    const db = new KnowledgeDB(":memory:");
+    // status-bearing, non-decision concept — hard-epistemic via status_set
+    insertNode(db, "validated-finding", { kind: "feature", status: "validated" });
+    expect(() =>
+      removeConcept(db, { id: "validated-finding", reason: "nope", treat_as_descriptive: true })
+    ).toThrow("treat_as_descriptive cannot override");
+    expect(db.getNode("validated-finding")).toBeTruthy();
+
+    // decision-kind concept, no status — hard-epistemic via decision_kind
+    insertNode(db, "a-decision", { kind: "decision" });
+    expect(() =>
+      removeConcept(db, { id: "a-decision", reason: "nope", treat_as_descriptive: true })
+    ).toThrow("treat_as_descriptive cannot override");
+    expect(db.getNode("a-decision")).toBeTruthy();
+  });
 });
 
 describe("provenance_trace", () => {

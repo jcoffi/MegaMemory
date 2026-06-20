@@ -780,11 +780,27 @@ export function removeConcept(
   }
 
   const protection = db.isEpistemicallyProtected(input.id);
-  if (protection.protected && !input.treat_as_descriptive) {
+  // §4.4: an explicit status or a `decision` kind makes a concept hard-epistemic —
+  // it can NEVER be removed (status-flip only); treat_as_descriptive must not override
+  // it. The escape only clears the *soft* provenance-participation guards (incoming
+  // informed_by, legacy outgoing informed_by, contradicts/supersedes endpoints) on an
+  // otherwise-descriptive (NULL-status, non-decision) concept.
+  const HARD_REASONS = new Set(["status_set", "decision_kind"]);
+  const hardReasons = protection.reasons.filter((r) => HARD_REASONS.has(r));
+  const softReasons = protection.reasons.filter((r) => !HARD_REASONS.has(r));
+
+  if (hardReasons.length > 0) {
     throw new Error(
-      `Refusing to remove epistemic concept "${input.id}" (${protection.reasons.join(
+      `Refusing to remove epistemic concept "${input.id}" (${hardReasons.join(
         ", "
-      )}). Use update_concept to set status to abandoned, refuted, or superseded; pass treat_as_descriptive only for re-derivable descriptive records.`
+      )}). Use update_concept to set status to abandoned, refuted, or superseded — treat_as_descriptive cannot override an epistemic record.`
+    );
+  }
+  if (softReasons.length > 0 && !input.treat_as_descriptive) {
+    throw new Error(
+      `Refusing to remove "${input.id}" — other concepts depend on it via provenance (${softReasons.join(
+        ", "
+      )}). If it is genuinely descriptive and re-derivable, pass treat_as_descriptive=true; otherwise transition its status via update_concept.`
     );
   }
 
