@@ -91,7 +91,6 @@ export type AuditOutput =
       view: "retrospective";
       items: Array<{ node: TraceNode; trace: TraceOutput; replacements: TraceNode[] }>;
       hygiene_flags: HygieneFlag[];
-      next_cursor: string | null;
     }
   | {
       view: "frontier";
@@ -106,13 +105,11 @@ export type AuditOutput =
         };
       }>;
       hygiene_flags: HygieneFlag[];
-      next_cursor: string | null;
     }
   | {
       view: "triage";
       items: Array<{ node: TraceNode; reasons: string[] }>;
       hygiene_flags: HygieneFlag[];
-      next_cursor: string | null;
     };
 
 export function formatError(err: unknown): { content: Array<{ type: "text"; text: string }>; isError: true } {
@@ -423,7 +420,7 @@ export function provenanceTrace(db: KnowledgeDB, input: TraceInput): TraceOutput
 
 export function provenanceAudit(
   db: KnowledgeDB,
-  input: { view: AuditView; limit?: number; cursor?: string }
+  input: { view: AuditView; limit?: number }
 ): AuditOutput {
   const limit = clampInteger(input.limit, 25, 1, 100);
   const hygieneFlags = computeHygieneFlags(db);
@@ -450,7 +447,7 @@ export function provenanceAudit(
           .filter((replacement): replacement is NodeRow => replacement !== undefined)
           .map((replacement) => toTraceNode(replacement, "summary", 200)),
       }));
-    return { view: "retrospective", items, hygiene_flags: hygieneFlags, next_cursor: null };
+    return { view: "retrospective", items, hygiene_flags: hygieneFlags };
   }
 
   if (input.view === "triage") {
@@ -475,7 +472,7 @@ export function provenanceAudit(
         node: toTraceNode(node, "summary", 200),
         reasons: [...(reasonsByNode.get(node.id) ?? new Set<string>())].sort(),
       }));
-    return { view: "triage", items, hygiene_flags: hygieneFlags, next_cursor: null };
+    return { view: "triage", items, hygiene_flags: hygieneFlags };
   }
 
   const activeEdges = allActiveEdges(db);
@@ -534,7 +531,7 @@ export function provenanceAudit(
     .sort((a, b) => (b.score === a.score ? a.node.id.localeCompare(b.node.id) : b.score - a.score))
     .slice(0, limit);
 
-  return { view: "frontier", items, hygiene_flags: hygieneFlags, next_cursor: null };
+  return { view: "frontier", items, hygiene_flags: hygieneFlags };
 }
 
 export function computeHygieneFlags(db: KnowledgeDB, scope?: Set<string>): HygieneFlag[] {

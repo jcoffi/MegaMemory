@@ -681,8 +681,7 @@ export async function registerTools(
     "Audit the evidential-provenance graph (read-only scaffold for reasoning, not causal inference). view='retrospective' surfaces refuted/superseded/abandoned decisions with their `informed_by` lineage and replacements (\"where did our thinking go wrong\"); view='frontier' ranks open/unvalidated concepts by how much downstream work depends on them, hub-penalized (\"what to validate or test next\"); view='triage' lists legacy concepts that have no status yet participate in provenance relations.",
     {
       view: z.enum(["retrospective", "frontier", "triage"]).describe("retrospective | frontier | triage"),
-      limit: z.number().int().min(1).max(100).optional().describe("Max items returned (default 25)"),
-      cursor: z.string().optional().describe("Pagination cursor"),
+      limit: z.number().int().min(1).max(100).optional().describe("Max items returned (default 25; hard cap, not paginated)"),
     },
     async (params) => {
       try {
