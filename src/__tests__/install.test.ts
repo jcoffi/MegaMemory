@@ -105,4 +105,39 @@ describe("install instruction refresh", () => {
       fs.rmSync(configDir, { force: true, recursive: true });
     }
   });
+
+  it("stamps the instruction version into the generated opencode MCP config env", async () => {
+    const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "megamemory-install-"));
+    try {
+      vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const { runInstall } = await loadInstaller(configDir);
+      const { INSTRUCTION_VERSION, INSTRUCTIONS_VERSION_ENV } = await import(
+        "../instruction-version.js"
+      );
+
+      await runInstall(["--target", "opencode"]);
+
+      const config = JSON.parse(
+        fs.readFileSync(path.join(configDir, "opencode.json"), "utf-8")
+      );
+      expect(config.mcp.megamemory.environment[INSTRUCTIONS_VERSION_ENV]).toBe(
+        INSTRUCTION_VERSION
+      );
+    } finally {
+      fs.rmSync(configDir, { force: true, recursive: true });
+    }
+  });
+
+  it("buildCodexToml emits the instruction-version env table", async () => {
+    const { buildCodexToml } = await import("../install.js");
+    const { INSTRUCTION_VERSION, INSTRUCTIONS_VERSION_ENV } = await import(
+      "../instruction-version.js"
+    );
+    const toml = buildCodexToml({
+      opencodeCommand: ["megamemory"],
+      stdioCommand: "megamemory",
+      stdioArgs: [],
+    });
+    expect(toml).toContain(`${INSTRUCTIONS_VERSION_ENV} = "${INSTRUCTION_VERSION}"`);
+  });
 });

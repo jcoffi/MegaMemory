@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "url";
 import pc from "picocolors";
 import { errorBold, validatePort } from "./cli-utils.js";
 import { createTimelineLogger } from "./timeline.js";
+import { INSTRUCTION_VERSION, INSTRUCTIONS_VERSION_ENV } from "./instruction-version.js";
 
 // ---- CLI routing ----
 
@@ -213,7 +214,7 @@ async function startMcpServer() {
     timeline,
     version: VERSION,
     isInstructionsStale: () =>
-      instructionsStaleFrom(process.env.MEGAMEMORY_INSTRUCTIONS_VERSION, VERSION),
+      instructionsStaleFrom(process.env[INSTRUCTIONS_VERSION_ENV], INSTRUCTION_VERSION),
   });
 
   // ---- Start ----
@@ -224,35 +225,25 @@ async function startMcpServer() {
 
 /**
  * Pure staleness check for the installed agent-instruction files. Returns true
- * only when an installed instruction version is KNOWN and strictly older than
- * the running server version; when the installed version is unknown it returns
- * false rather than fabricating staleness (§3.3 — never manufacture state).
+ * only when an installed instruction version is KNOWN and differs from the
+ * version this build ships (INSTRUCTION_VERSION); when the installed version is
+ * unknown it returns false rather than fabricating staleness (§3.3 — never
+ * manufacture state).
  *
- * The installed version is stamped by the install layer (Phase 9.3, into the
- * AGENTS.md/CLAUDE.md provenance block) and read here from
- * MEGAMEMORY_INSTRUCTIONS_VERSION. The signal is surfaced on the MCP-visible
+ * The installer stamps the instruction version into each generated MCP server
+ * config's env (MEGAMEMORY_INSTRUCTIONS_VERSION) — see src/install.ts — and the
+ * server reads it back here. Instruction versions are content tags (e.g.
+ * "2026-06-19-evidential-provenance"), not semver, so this is an exact-match
+ * check: any mismatch means the installed guidance is out of sync with this
+ * build and should be re-installed. The signal is surfaced on the MCP-visible
  * read tools (list_roots / understand), never on stderr/console.error.
  */
 export function instructionsStaleFrom(
   installedVersion: string | undefined | null,
-  serverVersion: string
+  currentVersion: string
 ): boolean {
   if (!installedVersion) return false;
-  return compareSemver(installedVersion, serverVersion) < 0;
-}
-
-/** Numeric dot-segment compare: -1 if a<b, 1 if a>b, 0 if equal or unparseable. */
-function compareSemver(a: string, b: string): number {
-  const pa = a.split(".").map((n) => parseInt(n, 10));
-  const pb = b.split(".").map((n) => parseInt(n, 10));
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const x = pa[i] ?? 0;
-    const y = pb[i] ?? 0;
-    if (Number.isNaN(x) || Number.isNaN(y)) return 0;
-    if (x !== y) return x < y ? -1 : 1;
-  }
-  return 0;
+  return installedVersion !== currentVersion;
 }
 
 /**

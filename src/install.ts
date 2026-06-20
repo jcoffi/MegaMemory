@@ -4,6 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import pc from "picocolors";
 import { success, skip, error, info, heading, warn, multiSelect } from "./cli-utils.js";
+import { INSTRUCTION_VERSION, INSTRUCTIONS_VERSION_ENV } from "./instruction-version.js";
 
 export type InstallTarget = "opencode" | "claudecode" | "antigravity" | "codex";
 
@@ -49,7 +50,6 @@ const CODEX_DIR = path.join(os.homedir(), ".codex");
 const CODEX_CONFIG_PATH = path.join(CODEX_DIR, "config.toml");
 const CODEX_AGENTS_MD_PATH = path.join(CODEX_DIR, "AGENTS.md");
 
-const INSTRUCTION_VERSION = "2026-06-19-evidential-provenance";
 const INSTRUCTION_BLOCK_BEGIN_PREFIX = "<!-- megamemory:instructions begin";
 const INSTRUCTION_BLOCK_BEGIN = `${INSTRUCTION_BLOCK_BEGIN_PREFIX} ${INSTRUCTION_VERSION} -->`;
 const INSTRUCTION_BLOCK_END = "<!-- megamemory:instructions end -->";
@@ -362,6 +362,7 @@ async function setupOpencodeMcpConfig(runtime: CommandRuntime): Promise<void> {
     type: "local",
     command: runtime.opencodeCommand,
     enabled: true,
+    environment: { [INSTRUCTIONS_VERSION_ENV]: INSTRUCTION_VERSION },
   };
   config["mcp"] = mcp;
 
@@ -405,6 +406,7 @@ async function setupClaudeConfig(runtime: CommandRuntime): Promise<void> {
     type: "stdio",
     command: runtime.stdioCommand,
     args: runtime.stdioArgs,
+    env: { [INSTRUCTIONS_VERSION_ENV]: INSTRUCTION_VERSION },
   };
   config["mcpServers"] = mcpServers;
 
@@ -440,6 +442,7 @@ async function setupAntigravityConfig(runtime: CommandRuntime): Promise<void> {
   mcpServers["megamemory"] = {
     command: runtime.stdioCommand,
     args: runtime.stdioArgs,
+    env: { [INSTRUCTIONS_VERSION_ENV]: INSTRUCTION_VERSION },
   };
   config["mcpServers"] = mcpServers;
 
@@ -453,14 +456,15 @@ async function setupAntigravityConfig(runtime: CommandRuntime): Promise<void> {
   info(`Command: ${pc.cyan(JSON.stringify([runtime.stdioCommand, ...runtime.stdioArgs]))}`);
 }
 
-function buildCodexToml(runtime: CommandRuntime): string {
+export function buildCodexToml(runtime: CommandRuntime): string {
   const escapedCommand = runtime.stdioCommand.replace(/\\/g, "\\\\");
   const escapedArgs = runtime.stdioArgs.map((a) => a.replace(/\\/g, "\\\\"));
   const argsToml =
     escapedArgs.length === 0
       ? "[]"
       : `[${escapedArgs.map((a) => `"${a}"`).join(", ")}]`;
-  return `[mcp_servers.megamemory]\ncommand = "${escapedCommand}"\nargs = ${argsToml}\n`;
+  const envToml = `env = { ${INSTRUCTIONS_VERSION_ENV} = "${INSTRUCTION_VERSION}" }`;
+  return `[mcp_servers.megamemory]\ncommand = "${escapedCommand}"\nargs = ${argsToml}\n${envToml}\n`;
 }
 
 function replaceOrAppendTomlSection(

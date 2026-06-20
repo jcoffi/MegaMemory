@@ -242,14 +242,14 @@ describe("stale-instructions signal on read tools (P9.2 / §3.3)", () => {
     expect(Array.isArray(json.matches)).toBe(true);
   });
 
-  it("instructionsStaleFrom: stale only when installed version is known AND older than server", () => {
-    expect(instructionsStaleFrom("1.5.0", "1.6.1")).toBe(true);
-    expect(instructionsStaleFrom("1.6.0", "1.6.1")).toBe(true);
-    expect(instructionsStaleFrom("1.6.1", "1.6.1")).toBe(false);
-    expect(instructionsStaleFrom("1.7.0", "1.6.1")).toBe(false);
-    expect(instructionsStaleFrom(undefined, "1.6.1")).toBe(false);
-    expect(instructionsStaleFrom(null, "1.6.1")).toBe(false);
-    expect(instructionsStaleFrom("", "1.6.1")).toBe(false);
+  it("instructionsStaleFrom: stale only when installed version is known AND differs from this build", () => {
+    const current = "2026-06-19-evidential-provenance";
+    expect(instructionsStaleFrom("2025-01-01-older", current)).toBe(true);
+    expect(instructionsStaleFrom("2099-12-31-newer", current)).toBe(true);
+    expect(instructionsStaleFrom(current, current)).toBe(false);
+    expect(instructionsStaleFrom(undefined, current)).toBe(false);
+    expect(instructionsStaleFrom(null, current)).toBe(false);
+    expect(instructionsStaleFrom("", current)).toBe(false);
   });
 });
 
