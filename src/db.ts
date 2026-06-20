@@ -1111,7 +1111,7 @@ export class KnowledgeDB {
       INNER JOIN nodes nf ON e.from_id = nf.id
       INNER JOIN nodes nt ON e.to_id = nt.id
       WHERE e.created_at <= @timestamp
-        AND e.removed_at IS NULL
+        AND (e.removed_at IS NULL OR e.removed_at > @timestamp)
         AND nf.created_at <= @timestamp
         AND nt.created_at <= @timestamp
         AND (nf.removed_at IS NULL OR nf.removed_at > @timestamp)
