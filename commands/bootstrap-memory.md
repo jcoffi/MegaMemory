@@ -11,7 +11,7 @@ count — the biggest files are where the core logic lives.
 
 ## Step 1: Check existing graph
 
-Call `megamemory:list_roots` to see what's already recorded. If the graph has
+Call `list_roots` to see what's already recorded. If the graph has
 good coverage, report what's there and ask if I want to fill in specific areas.
 
 ## Step 2: Identify major modules
@@ -25,7 +25,7 @@ Think in terms of:
 ## Step 3: Read and create root concepts
 
 For each major module, read its key files to understand what it does. Then call
-`megamemory:create_concept` with a specific, detailed summary. Include parameter
+`create_concept` with a specific, detailed summary. Include parameter
 names, defaults, file paths, and behavior details — not vague descriptions.
 
 ## Step 4: Create children for important sub-components
@@ -35,7 +35,7 @@ deep. Focus on things a developer would need to know when working in that area.
 
 ## Step 5: Link related concepts
 
-Connect concepts that interact across boundaries using `megamemory:link`.
+Connect concepts that interact across boundaries using `link`.
 Structural relationships: `depends_on`, `calls`, `connects_to`, `implements`,
 `configured_by`. Provenance relationships (see Evidential Provenance below):
 `informed_by`, `supersedes`, `contradicts`.
@@ -65,9 +65,9 @@ Structural relationships: `depends_on`, `calls`, `connects_to`, `implements`,
   status-bearing nodes, and anything other concepts are `informed_by` unless you
   pass `treat_as_descriptive: true`; remove only descriptive records that are
   clearly re-derivable from the source tree.
-- Reflect with the read-only tools: `megamemory:provenance_trace` (direction
+- Reflect with the read-only tools: `provenance_trace` (direction
   `upstream` = the evidence a decision rests on; `downstream` = what a finding
-  influenced) and `megamemory:provenance_audit` (`retrospective` = refuted/
+  influenced) and `provenance_audit` (`retrospective` = refuted/
   superseded/abandoned lineage; `frontier` = open concepts ranked by how much
   depends on them, i.e. what to validate next; `triage` = legacy concepts with
   no status).

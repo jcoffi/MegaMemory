@@ -7,7 +7,7 @@ you noticed, or intent the user shared.
 
 ## Step 1: Load existing graph
 
-Call `megamemory:list_roots` to see what's already recorded. Understanding the
+Call `list_roots` to see what's already recorded. Understanding the
 current state prevents duplicates and helps you decide what to update vs create.
 
 ## Step 2: Reflect on this session
@@ -22,12 +22,12 @@ Think about what happened this session. Consider:
 
 ## Step 3: Search for overlap
 
-Before creating anything new, call `megamemory:understand` with queries based on
+Before creating anything new, call `understand` with queries based on
 what you worked on this session. For each area you touched, search to see if
 concepts already exist that should be updated rather than duplicated.
 
 For example, if you worked on authentication, call:
-  megamemory:understand — query="authentication"
+  understand — query="authentication"
 
 Do this for each distinct area. Existing concepts that are stale or incomplete
 should be updated — don't create a new node when an update will do.
@@ -36,7 +36,7 @@ should be updated — don't create a new node when an update will do.
 
 For each thing worth remembering:
 
-**New understanding** → `megamemory:create_concept`
+**New understanding** → `create_concept`
   - name: human-readable name
   - kind: use `decision` for intent/rationale, `feature` for capabilities,
     `module` for subsystems, `pattern` for conventions, `config` for setup,
@@ -54,7 +54,7 @@ For each thing worth remembering:
     rationale in `description` — see Evidential Provenance below.
   - created_by_task: brief description of what you were doing this session
 
-**Updated understanding** → `megamemory:update_concept`
+**Updated understanding** → `update_concept`
   - id: the concept slug
   - changes: {summary?, why?, file_refs?, name?, kind?, status?}
   If an existing concept is now stale or incomplete based on what you learned,
@@ -62,7 +62,7 @@ For each thing worth remembering:
   decision's epistemic state (`open` → `validated`/`refuted`/`superseded`/
   `abandoned`), update its `status` with a `why` rather than deleting it.
 
-**New connections** → `megamemory:link`
+**New connections** → `link`
   - from, to: concept IDs
   - relation: depends_on | implements | calls | connects_to | configured_by |
     informed_by | supersedes | contradicts
@@ -70,7 +70,7 @@ For each thing worth remembering:
     `supersedes`, and `contradicts`)
   If you discovered how existing concepts relate to each other.
 
-**Removed/replaced things** → `megamemory:remove_concept`
+**Removed/replaced things** → `remove_concept`
   - id: concept to remove
   - reason: why it was removed
   - treat_as_descriptive: set `true` only for a genuinely descriptive concept
@@ -81,7 +81,7 @@ For each thing worth remembering:
 
 ## Step 5: Verify
 
-Call `megamemory:list_roots` again. Confirm the graph reflects your current
+Call `list_roots` again. Confirm the graph reflects your current
 understanding. Report what you saved.
 
 ## Guidelines
@@ -113,9 +113,9 @@ understanding. Report what you saved.
   status-bearing nodes, and anything other concepts are `informed_by` unless you
   pass `treat_as_descriptive: true`; remove only descriptive records that are
   clearly re-derivable from the source tree.
-- Reflect with the read-only tools: `megamemory:provenance_trace` (direction
+- Reflect with the read-only tools: `provenance_trace` (direction
   `upstream` = the evidence a decision rests on; `downstream` = what a finding
-  influenced) and `megamemory:provenance_audit` (`retrospective` = refuted/
+  influenced) and `provenance_audit` (`retrospective` = refuted/
   superseded/abandoned lineage; `frontier` = open concepts ranked by how much
   depends on them, i.e. what to validate next; `triage` = legacy concepts with
   no status).
