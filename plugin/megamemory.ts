@@ -49,18 +49,20 @@ For decisions / experiments / results: \`open\` (proposed — not a correctness 
 
 ## MCP Tools Reference
 
+> Call each tool by the exact name shown in your available-tools list. Clients namespace them differently (e.g. Claude Code exposes them as \`megamemory:list_roots\`), so use your client's actual name — do not invoke a literal \`megamemory:\`-prefixed name unless your tool list shows it.
+
 | Tool | When | What it does |
 |---|---|---|
-| \`megamemory:understand\` | Before tasks | Semantic search — returns matching concepts with children, edges, parent |
-| \`megamemory:create_concept\` | After tasks | Add a concept (summary, kind, status, edges, file refs) |
-| \`megamemory:update_concept\` | After tasks | Patch fields, including \`status\` |
-| \`megamemory:link\` | After tasks | Create a relationship (structural or evidential provenance) |
-| \`megamemory:remove_concept\` | On refactor/delete | Soft-delete; refuses epistemic nodes unless \`treat_as_descriptive\` |
-| \`megamemory:list_roots\` | Session start | All top-level concepts with children + stats |
-| \`megamemory:provenance_trace\` | Auditing | Trace \`informed_by\` lineage — \`upstream\` (evidence a decision rests on) or \`downstream\` (impact) |
-| \`megamemory:provenance_audit\` | Auditing | \`retrospective\` (refuted/superseded/abandoned lineage) · \`frontier\` (open concepts ranked by what depends on them — what to validate next) · \`triage\` (legacy unstatused) |
-| \`megamemory:list_conflicts\` | After merge | Lists unresolved merge conflicts grouped by merge_group |
-| \`megamemory:resolve_conflict\` | During /merge | Resolve a conflict by providing verified, correct content |
+| \`understand\` | Before tasks | Semantic search — returns matching concepts with children, edges, parent |
+| \`create_concept\` | After tasks | Add a concept (summary, kind, status, edges, file refs) |
+| \`update_concept\` | After tasks | Patch fields, including \`status\` |
+| \`link\` | After tasks | Create a relationship (structural or evidential provenance) |
+| \`remove_concept\` | On refactor/delete | Soft-delete; refuses epistemic nodes unless \`treat_as_descriptive\` |
+| \`list_roots\` | Session start | All top-level concepts with children + stats |
+| \`provenance_trace\` | Auditing | Trace \`informed_by\` lineage — \`upstream\` (evidence a decision rests on) or \`downstream\` (impact) |
+| \`provenance_audit\` | Auditing | \`retrospective\` (refuted/superseded/abandoned lineage) · \`frontier\` (open concepts ranked by what depends on them — what to validate next) · \`triage\` (legacy unstatused) |
+| \`list_conflicts\` | After merge | Lists unresolved merge conflicts grouped by merge_group |
+| \`resolve_conflict\` | During /merge | Resolve a conflict by providing verified, correct content |
 `;
 
 export default tool({
@@ -87,7 +89,7 @@ export default tool({
       case "overview":
         return `To get a project overview, call:
 
-1. megamemory:list_roots — Returns all top-level concepts with their children and graph stats.
+1. list_roots — Returns all top-level concepts with their children and graph stats.
 
 Use this at the start of every session to orient yourself. If the graph is empty, proceed normally and create concepts as you work.`;
 
@@ -97,7 +99,7 @@ Use this at the start of every session to orient yourself. If the graph is empty
         }
         return `To load context for "${query}", call:
 
-1. megamemory:understand — query="${query}"
+1. understand — query="${query}"
    Returns: matched concepts ranked by relevance, each with:
    - summary, why, file_refs
    - children (1 level)
@@ -109,7 +111,7 @@ Use the returned context instead of re-reading source files when possible. If no
       case "record":
         return `After completing your task, update the knowledge graph:
 
-1. **New concepts** → megamemory:create_concept
+1. **New concepts** → create_concept
    - name: human-readable name
    - kind: feature | module | pattern | config | decision | component
    - status (decisions/experiments/results): open for a proposal not yet confirmed; omit for descriptive concepts that mirror code
@@ -120,16 +122,16 @@ Use the returned context instead of re-reading source files when possible. If no
    - edges: [{to: "concept-id", relation: "depends_on|implements|calls|connects_to|configured_by|informed_by|supersedes|contradicts", description: "why"}] (provenance relations require the rationale in description)
    - created_by_task: what task/prompt created this
 
-2. **Changed concepts** → megamemory:update_concept
+2. **Changed concepts** → update_concept
    - id: the concept slug
    - changes: {summary?, why?, file_refs?, name?, kind?, status?} (transition a decision's status — validated/refuted/superseded/abandoned — instead of deleting it)
 
-3. **New relationships** → megamemory:link
+3. **New relationships** → link
    - from, to: concept IDs
    - relation: depends_on | implements | calls | connects_to | configured_by | informed_by | supersedes | contradicts
    - description: why this relationship exists (required for informed_by / supersedes / contradicts)
 
-4. **Removed / superseded** → megamemory:remove_concept
+4. **Removed / superseded** → remove_concept
    - id: concept to remove
    - reason: why it was removed
    - treat_as_descriptive: set true ONLY for a genuinely descriptive concept (mirrors code, re-derivable); decisions, status-bearing nodes, and informed_by targets are refused by default — transition their status instead${concepts ? `\n\nContext about what to record: "${concepts}"` : ""}`;
@@ -137,7 +139,7 @@ Use the returned context instead of re-reading source files when possible. If no
       case "merge":
         return `To resolve merge conflicts in the knowledge graph:
 
-1. **List conflicts** → megamemory:list_conflicts
+1. **List conflicts** → list_conflicts
    - Returns all unresolved conflicts grouped by merge_group
    - Each group has competing versions with summaries, file_refs, edges
 
@@ -146,7 +148,7 @@ Use the returned context instead of re-reading source files when possible. If no
    b. Read the actual source files referenced in file_refs to determine what the code ACTUALLY does now
    c. Write the correct resolved content based on the current codebase — do NOT just pick a side
 
-3. **Resolve** → megamemory:resolve_conflict
+3. **Resolve** → resolve_conflict
    - merge_group: the UUID of the conflict
    - resolved: {summary, why?, file_refs?} — the verified, correct content
    - reason: what you verified and why this resolution is correct
