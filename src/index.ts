@@ -25,6 +25,7 @@ ${pc.bold("Commands:")}
   ${pc.cyan("install")}         Configure editor/agent integration (interactive)
   ${pc.cyan("serve")}           Start the web graph explorer
   ${pc.cyan("stats")}           Show knowledge graph statistics
+  ${pc.cyan("doctor")}          Check database health (read-only)
   ${pc.cyan("merge")}           Merge two knowledge.db files
   ${pc.cyan("conflicts")}       List unresolved merge conflicts
   ${pc.cyan("resolve")}         Resolve a merge conflict
@@ -51,7 +52,7 @@ ${pc.bold("Examples:")}
   ${pc.dim("$")} megamemory resolve <group-id> --keep left            ${pc.dim("Resolve a conflict")}
 `.trim();
 
-const KNOWN_COMMANDS = new Set(["install", "serve", "stats", "merge", "conflicts", "resolve", "--help", "-h", "--version", "-v"]);
+const KNOWN_COMMANDS = new Set(["install", "serve", "stats", "doctor", "merge", "conflicts", "resolve", "--help", "-h", "--version", "-v"]);
 
 function parseFlags(args: string[]): { port?: number; rawPort?: string } {
   const portIdx = args.indexOf("--port");
@@ -86,6 +87,11 @@ async function runCli(): Promise<void> {
       break;
     }
 
+    case "doctor": {
+      const { runDoctor } = await import("./doctor.js");
+      await runDoctor(process.argv.slice(3));
+      return;
+    }
     case "stats": {
       const { runStats } = await import("./stats.js");
       await runStats(process.argv.slice(3));

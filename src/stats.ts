@@ -44,6 +44,66 @@ function printRow(label: string, value: string, detail?: string): void {
   console.log(prefix);
 }
 
+const STATUS_ORDER = ["open", "validated", "refuted", "superseded", "abandoned", "(none)"];
+
+export interface GraphCensus {
+  /** Active nodes by status; unstatused nodes are counted under "(none)". */
+  statuses: Record<string, number>;
+  /** Active (non-tombstoned) edges by relation. */
+  relations: Record<string, number>;
+  tombstonedEdges: number;
+  /**
+   * Unstatused nodes split by whether anything cites them as evidence. Only the
+   * cited ones can reach the frontier — an uncited node scores zero and is
+   * filtered out — so this is the number that says how much of the graph the
+   * frontier can actually see.
+   */
+  provenance: { unstatused: number; unstatusedCited: number; unstatusedUncited: number };
+}
+
+export function computeCensus(db: KnowledgeDB): GraphCensus {
+  const nodes = db.getAllActiveNodes();
+  const statuses: Record<string, number> = {};
+  for (const node of nodes) {
+    const key = node.status ?? "(none)";
+    statuses[key] = (statuses[key] ?? 0) + 1;
+  }
+
+  const rawEdges = db.getAllEdgesRaw();
+  const activeEdges = rawEdges.filter((edge) => edge.removed_at === null);
+  const relations: Record<string, number> = {};
+  for (const edge of activeEdges) {
+    relations[edge.relation] = (relations[edge.relation] ?? 0) + 1;
+  }
+
+  const cited = new Set(
+    activeEdges.filter((edge) => edge.relation === "informed_by").map((edge) => edge.to_id)
+  );
+  const unstatusedNodes = nodes.filter((node) => node.status === null);
+  const unstatusedCited = unstatusedNodes.filter((node) => cited.has(node.id)).length;
+
+  return {
+    statuses,
+    relations,
+    tombstonedEdges: rawEdges.length - activeEdges.length,
+    provenance: {
+      unstatused: unstatusedNodes.length,
+      unstatusedCited,
+      unstatusedUncited: unstatusedNodes.length - unstatusedCited,
+    },
+  };
+}
+
+function sortedByPreference(counts: Record<string, number>, order: string[]): Array<[string, number]> {
+  const preferred = order
+    .filter((key) => counts[key] !== undefined)
+    .map((key) => [key, counts[key]] as [string, number]);
+  const extra = Object.entries(counts)
+    .filter(([key]) => !order.includes(key))
+    .sort(([a], [b]) => a.localeCompare(b));
+  return [...preferred, ...extra];
+}
+
 function sortedKinds(kinds: Record<string, number>): Array<[string, number]> {
   const preferred = KIND_ORDER.filter((kind) => kinds[kind] !== undefined).map((kind) => [kind, kinds[kind]] as [string, number]);
   const extra = Object.entries(kinds)
@@ -148,6 +208,33 @@ export async function runStats(args: string[]): Promise<void> {
     if (Object.keys(kinds).length === 0) {
       printRow("-", "0");
     }
+    console.log();
+
+    const census = computeCensus(db);
+
+    console.log(`  ${pc.bold("Status")}`);
+    for (const [status, count] of sortedByPreference(census.statuses, STATUS_ORDER)) {
+      printRow(status, formatNumber(count));
+    }
+    if (Object.keys(census.statuses).length === 0) {
+      printRow("-", "0");
+    }
+    console.log();
+
+    console.log(`  ${pc.bold("Relations")}`);
+    for (const [relation, count] of sortedByPreference(census.relations, [])) {
+      printRow(relation, formatNumber(count));
+    }
+    if (Object.keys(census.relations).length === 0) {
+      printRow("-", "0");
+    }
+    printRow("tombstoned", formatNumber(census.tombstonedEdges));
+    console.log();
+
+    console.log(`  ${pc.bold("Provenance")}`);
+    printRow("Unstatused", formatNumber(census.provenance.unstatused));
+    printRow("  cited", formatNumber(census.provenance.unstatusedCited), "(can reach frontier)");
+    printRow("  uncited", formatNumber(census.provenance.unstatusedUncited), "(scores zero, filtered out)");
     console.log();
 
     console.log(`  ${pc.bold("Size")}`);
