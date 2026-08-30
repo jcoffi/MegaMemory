@@ -67,7 +67,7 @@ You have access to a project knowledge graph via the \`megamemory\` MCP server a
 
 1. **Session start:** You must call \`megamemory\` with action \`overview\` (or \`list_roots\` directly) before you begin work.
 2. **Before each task:** You must call \`megamemory\` with action \`query\` (or \`understand\` directly) before reading source files for project understanding.
-3. **After each task:** You must call \`megamemory\` with action \`record\` to create/update/link concepts for what you built.
+3. **After each task:** You must call \`megamemory\` with action \`record\` to create/update/link concepts capturing what you now KNOW — not a log of what you did. Litmus: if you can't be sure it will still be true in a month, it belongs in git/PRs, not the graph.
 
 > Call the megamemory tools by the exact name in your tool list — clients namespace them (e.g. Claude Code shows \`megamemory:list_roots\`). The \`megamemory\` action-tool and the granular tools (\`list_roots\`, \`understand\`, \`create_concept\`, …) are separate; if the granular ones aren't in your tool list, the MCP server isn't loaded.
 
