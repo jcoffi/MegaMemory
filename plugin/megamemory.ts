@@ -24,6 +24,7 @@ Your persistent memory of the codebase. You have no implicit memory of this proj
 2. **Concepts, not code.** Nodes are features, patterns, decisions — not files or symbols.
 3. **Be specific.** Include parameter names, defaults, file paths, rationale.
 4. **Keep it shallow.** Max 3 levels deep. Useful beats exhaustive.
+5. **Link every memory.** Creating a memory without linking it to another memory greatly degrades its usefulness — unlinked concepts don't surface through graph traversal. Connect each new concept to the graph (\`edges\` at creation, a \`parent_id\`, or \`link\` immediately after).
 
 ## Concept Kinds
 
@@ -120,6 +121,7 @@ Use the returned context instead of re-reading source files when possible. If no
    - parent_id: parent concept slug (for nesting)
    - file_refs: relevant file paths + line ranges
    - edges: [{to: "concept-id", relation: "depends_on|implements|calls|connects_to|configured_by|informed_by|supersedes|contradicts", description: "why"}] (provenance relations require the rationale in description)
+     ALWAYS link: creating a memory without linking it to another memory greatly degrades its usefulness — include at least one edge (or a parent_id), or call link right after.
    - created_by_task: what task/prompt created this
 
 2. **Changed concepts** → update_concept
