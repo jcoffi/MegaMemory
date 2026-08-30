@@ -49,6 +49,8 @@ Your persistent memory of the codebase. You have no implicit memory of this proj
 
 For decisions / experiments / results: \`open\` (proposed — not a correctness claim) · \`validated\` (confirmed for a stated scope, by explicit evidence — never assumed) · \`refuted\` · \`superseded\` · \`abandoned\`. Omit for descriptive concepts that mirror code; legacy NULL means unknown, not validated. Prefer a status transition over deleting an epistemic record.
 
+Statuses are closed by later evidence, not by the session that opened them. When you set \`open\`, state the closing criterion in the summary/why ("Validate when: <observable evidence>") — without it, no future session can ever close the loop. You are the closer for concepts your session touches: if your work relied on an \`open\` decision and it held, set \`validated\` (state the scope); if it broke it → \`refuted\`; if you replaced it → \`supersedes\` edge + \`superseded\`; if it's dead and nobody will pursue it → \`abandoned\`. Occasionally run \`provenance_audit\` (view=frontier) — open concepts ranked by how much depends on them — and close what you have evidence for.
+
 ## MCP Tools Reference
 
 > Call each tool by the exact name shown in your available-tools list. Clients namespace them differently (e.g. Claude Code exposes them as \`megamemory:list_roots\`), so use your client's actual name — do not invoke a literal \`megamemory:\`-prefixed name unless your tool list shows it.
@@ -114,6 +116,8 @@ Use the returned context instead of re-reading source files when possible. If no
         return `After completing your task, update the knowledge graph.
 
 FIRST convert episodes into invariants: for each thing you did, ask "what does the system now do / have, and why?" Record THAT — drop the journey. Session events (commits, blockers, gate states, TODOs) belong in git/PRs, not in summaries. Session provenance goes in created_by_task; lifecycle goes in status.
+
+THEN close statuses your evidence touched: if this session relied on an open decision and it held → validated (state the scope); broke it → refuted; replaced it → superseded. When opening a new status, state its closing criterion ("Validate when: ...").
 
 1. **New concepts** → create_concept
    - name: human-readable name

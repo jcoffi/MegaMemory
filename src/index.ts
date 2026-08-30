@@ -362,7 +362,7 @@ export async function registerTools(
       name: z.string().describe("Human-readable name for the concept"),
       kind: NodeKindEnum.describe("Type of concept: feature, module, pattern, config, decision, component"),
       summary: z.string().describe("What this concept is — timeless and specific: parameter names, defaults, file paths, behavior, rationale. Describe the project as it now is, not your session's activity (no 'PENDING'/commit narratives; session provenance goes in created_by_task, lifecycle in status)."),
-      status: NodeStatusEnum.optional().describe("Epistemic status for decisions/experiments/results: open (proposed — explicitly not a correctness claim) | validated (confirmed correct for a stated scope, by explicit evidence) | refuted (concluded incorrect — kept as a record) | superseded | abandoned. Omit for descriptive concepts that mirror code; new epistemic records start open."),
+      status: NodeStatusEnum.optional().describe("Epistemic status for decisions/experiments/results: open (proposed — explicitly not a correctness claim) | validated (confirmed correct for a stated scope, by explicit evidence) | refuted (concluded incorrect — kept as a record) | superseded | abandoned. Omit for descriptive concepts that mirror code; new epistemic records start open. When opening, state the closing criterion ('Validate when: ...') in summary/why so a later session can close it."),
       why: z.string().optional().describe("Why this exists or was built this way"),
       parent_id: z.string().optional().describe("Parent concept ID for nesting"),
       file_refs: z.array(z.string()).optional().describe("Relevant file paths + optional line ranges"),

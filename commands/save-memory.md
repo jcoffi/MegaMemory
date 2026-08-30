@@ -21,6 +21,8 @@ do / have, and why?" — record that, not the journey. Consider:
 - What patterns or conventions did you discover?
 - What architectural understanding do you have now that isn't in the graph?
 - Did anything get removed, replaced, or deprecated?
+- Did this session's work validate, refute, or replace any `open` decision?
+  You hold the evidence — close its status (don't leave it `open` forever).
 
 ## Step 3: Search for overlap
 
@@ -83,6 +85,10 @@ For each thing worth remembering:
   If something descriptive in the graph is no longer true.
 
 ## Step 5: Verify
+
+Occasionally run `provenance_audit` (view=frontier) — it lists `open` concepts
+ranked by how much depends on them; validate or kill the top ones when you have
+the evidence.
 
 Call `list_roots` again. Confirm the graph reflects your current
 understanding. Report what you saved.
