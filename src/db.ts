@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import type { NodeRow, EdgeRow, NodeStatus } from "./types.js";
 
-const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 5;
 
 export class KnowledgeDB {
   private db: Database.Database;
@@ -539,7 +539,7 @@ export class KnowledgeDB {
     return this.db
       .prepare(
         `SELECT id, name, kind, summary, why, file_refs, parent_id,
-                created_by_task, created_at, updated_at, removed_at, removed_reason
+                created_by_task, created_at, updated_at, removed_at, removed_reason, status
          FROM nodes WHERE removed_at IS NULL ORDER BY name`
       )
       .all() as Array<Omit<NodeRow, "embedding">>;
