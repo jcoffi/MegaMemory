@@ -46,8 +46,9 @@ For each thing worth remembering:
     `module` for subsystems, `pattern` for conventions, `config` for setup,
     `component` for distinct pieces of a system
   - status (decisions/experiments/results only): `open` for a proposal not yet
-    confirmed; omit for descriptive concepts that mirror code (see Evidential
-    Provenance below)
+    confirmed; omit for descriptive concepts that mirror code — unless something
+    cites the concept as evidence (`informed_by`), in which case set `validated`
+    once you confirm it still matches the code (see Evidential Provenance below)
   - summary: be specific — include parameter names, defaults, file paths,
     behavior details, and the WHY behind things
   - why: the rationale — this is often the most valuable part

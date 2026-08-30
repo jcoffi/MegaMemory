@@ -8,7 +8,7 @@
  * this build). Keeping it in one module is what makes the staleness signal
  * actually wireable end-to-end.
  */
-export const INSTRUCTION_VERSION = "2026-08-30-status-closure";
+export const INSTRUCTION_VERSION = "2026-08-30-cited-descriptive";
 
 /**
  * Name of the env var the installer writes into generated MCP server configs
