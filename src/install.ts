@@ -76,7 +76,7 @@ You have access to a project knowledge graph via the \`megamemory\` MCP server a
 - Use \`informed_by\` only when a concept was materially supported by evidence, assumptions, prior results, or a decision basis.
 - Use \`supersedes\` when a newer concept replaces an older one; set the older concept's status to \`superseded\`.
 - Use \`contradicts\` when concepts conflict and both records should remain visible.
-- Node status values: open, validated, refuted, superseded, abandoned. New epistemic work should start as \`open\`; legacy NULL status means unknown, not validated.
+- Node status values: open, validated, refuted, superseded, abandoned. New epistemic work should start as \`open\`; legacy NULL status means unknown, not validated. Omit status on purely descriptive concepts — but once something cites one as evidence (\`informed_by\`), set \`validated\` when you confirm it still matches the code, or it stays on the frontier permanently and trips \`validated_rests_on_unvalidated\`.
 - Statuses close on later evidence — when setting \`open\`, state what would close it ("Validate when: ..."). If your session relied on an \`open\` decision and it held, set \`validated\` (state the scope); broke it → \`refuted\`; replaced it → \`superseded\`. Occasionally run \`provenance_audit\` (frontier) to see what to validate next.
 - Do not remove epistemic records just because they are stale. Update their status to \`abandoned\`, \`refuted\`, or \`superseded\` unless the node is explicitly descriptive and re-derivable from source files.
 
