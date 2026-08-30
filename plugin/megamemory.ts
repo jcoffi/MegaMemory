@@ -22,9 +22,10 @@ Your persistent memory of the codebase. You have no implicit memory of this proj
 
 1. **Query before work, update after work.** This is required, not optional.
 2. **Concepts, not code.** Nodes are features, patterns, decisions — not files or symbols.
-3. **Be specific.** Include parameter names, defaults, file paths, rationale.
-4. **Keep it shallow.** Max 3 levels deep. Useful beats exhaustive.
-5. **Link every memory.** Creating a memory without linking it to another memory greatly degrades its usefulness — unlinked concepts don't surface through graph traversal. Connect each new concept to the graph (\`edges\` at creation, a \`parent_id\`, or \`link\` immediately after).
+3. **Knowledge, not progress.** Record what is now TRUE of the project — how it works, what was decided, why. Not what happened this session. Litmus: if you can't be sure it will still be true in a month, it belongs in git/PRs/ledgers, not the graph — when in doubt, it's progress, not knowledge. Session provenance goes in \`created_by_task\`; lifecycle goes in \`status\` — never narrate "PENDING" / "in progress" / "committed X" inside a summary.
+4. **Be specific.** Include parameter names, defaults, file paths, rationale.
+5. **Keep it shallow.** Max 3 levels deep. Useful beats exhaustive.
+6. **Link every memory.** Creating a memory without linking it to another memory greatly degrades its usefulness — unlinked concepts don't surface through graph traversal. Connect each new concept to the graph (\`edges\` at creation, a \`parent_id\`, or \`link\` immediately after).
 
 ## Concept Kinds
 
@@ -110,7 +111,9 @@ Use this at the start of every session to orient yourself. If the graph is empty
 Use the returned context instead of re-reading source files when possible. If no relevant results come back, proceed normally — the graph may not cover this area yet.`;
 
       case "record":
-        return `After completing your task, update the knowledge graph:
+        return `After completing your task, update the knowledge graph.
+
+FIRST convert episodes into invariants: for each thing you did, ask "what does the system now do / have, and why?" Record THAT — drop the journey. Session events (commits, blockers, gate states, TODOs) belong in git/PRs, not in summaries. Session provenance goes in created_by_task; lifecycle goes in status.
 
 1. **New concepts** → create_concept
    - name: human-readable name

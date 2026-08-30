@@ -12,9 +12,11 @@ current state prevents duplicates and helps you decide what to update vs create.
 
 ## Step 2: Reflect on this session
 
-Think about what happened this session. Consider:
+Think about what is TRUE about the project now that wasn't before. Convert
+episodes into invariants: for each thing you did, ask "what does the system now
+do / have, and why?" — record that, not the journey. Consider:
 - What did you learn about the project's purpose or intent?
-- What features, modules, or components did you build or change?
+- What capabilities, modules, or behaviors does the project have now, and why?
 - What design decisions were made and why?
 - What patterns or conventions did you discover?
 - What architectural understanding do you have now that isn't in the graph?
@@ -53,6 +55,7 @@ For each thing worth remembering:
     Provenance relations (`informed_by`, `supersedes`, `contradicts`) require the
     rationale in `description` — see Evidential Provenance below.
   - created_by_task: brief description of what you were doing this session
+    (session provenance lives HERE — not in the summary)
 
 **Updated understanding** → `update_concept`
   - id: the concept slug
@@ -87,6 +90,11 @@ understanding. Report what you saved.
 ## Guidelines
 
 - Record what a future you (with no memory of this session) would need to know.
+- Knowledge, not progress: record what is now TRUE, not what happened. If you
+  can't be sure it will still be true in a month, it belongs in git/PRs/ledgers,
+  not the graph.
+  Session provenance goes in created_by_task; lifecycle goes in status — never
+  "PENDING"/"in progress" narrative inside a summary.
 - Intent and rationale ("why") are more valuable than implementation details.
 - Update existing concepts before creating new ones — keep the graph lean.
 - Don't record trivial things. If it's obvious from the code, skip it.
