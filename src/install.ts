@@ -80,6 +80,14 @@ You have access to a project knowledge graph via the \`megamemory\` MCP server a
 - Statuses close on later evidence — when setting \`open\`, state what would close it ("Validate when: ..."). If your session relied on an \`open\` decision and it held, set \`validated\` (state the scope); broke it → \`refuted\`; replaced it → \`superseded\`. Occasionally run \`provenance_audit\` (frontier) to see what to validate next.
 - Do not remove epistemic records just because they are stale. Update their status to \`abandoned\`, \`refuted\`, or \`superseded\` unless the node is explicitly descriptive and re-derivable from source files.
 
+**Deterministic context discipline:**
+
+- When delegating to an agent that shares this project directory, hand off concept IDs, not paraphrased context — the recipient pulls rationale itself via \`get_concept\`/\`provenance_trace\`. Inline prose only when the recipient cannot reach this graph.
+- Before dispatching or accepting an inline brief, fetch each cited concept (\`get_concept\`) and verify: every edge rationale survives, and no concept with status open/refuted/superseded is presented as settled.
+- No agent's self-report is evidence — not a subagent's, a peer's, nor a previous session's. Verify claimed results against the authoritative source (graph, files, test output) before acting on them or recording them.
+- When concept IDs are known, prefer \`get_concept\`/\`provenance_trace\` (exact, cheap) over \`understand\` (semantic search).
+- Instructions may reference capabilities that aren't loaded in this session. If a referenced capability doesn't match anything available, use an available tool that accomplishes the same goal — or state that the goal can't be accomplished with current tools. Never fabricate a tool call or simulate its output.
+
 Be specific in summaries: include parameter names, defaults, file locations, and rationale. Keep concepts max 3 levels deep.
 ${INSTRUCTION_BLOCK_END}
 `;
