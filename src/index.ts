@@ -363,7 +363,7 @@ export async function registerTools(
 
   server.tool(
     "create_concept",
-    "Add a new concept to the knowledge graph. Call this after completing a task to record new features, components, patterns, or decisions you built. Include specific details: parameter names, defaults, file locations, and rationale. When recording a decision, experiment, or result, attach `informed_by` edges (in `edges`) to the evidence, prior results, assumptions, or decision basis that materially supported it, with the supporting rationale in each edge's `description`. `informed_by` records authored evidential support, not causal inference.",
+    "Add a new concept to the knowledge graph. Call this after completing a task to record durable knowledge — what the project now does or contains and why, not a log of what you did (session provenance goes in created_by_task). Include specific details: parameter names, defaults, file locations, and rationale. When recording a decision, experiment, or result, attach `informed_by` edges (in `edges`) to the evidence, prior results, assumptions, or decision basis that materially supported it, with the supporting rationale in each edge's `description`. `informed_by` records authored evidential support, not causal inference.",
     {
       name: z.string().describe("Human-readable name for the concept"),
       kind: NodeKindEnum.describe("Type of concept: feature, module, pattern, config, decision, component"),
