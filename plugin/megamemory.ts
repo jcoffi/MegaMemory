@@ -3,7 +3,7 @@ import { tool } from "@opencode-ai/plugin";
 const SKILL = `
 ---
 name: megamemory
-description: Project knowledge graph — persistent memory across sessions. Use at session start, before tasks (to load context), and after tasks (to record durable knowledge — what is now TRUE, not a log of what you did). The graph stores concepts, architecture, decisions, and relationships — written by you, for you.
+description: Project knowledge graph — persistent memory across sessions. Use at session start, before tasks (to load context), and after tasks (to record what you built). The graph stores concepts, architecture, decisions, and relationships — written by you, for you.
 allowed-tools: "megamemory:*"
 ---
 
@@ -15,7 +15,7 @@ Your persistent memory of the codebase. You have no implicit memory of this proj
 
 - **Session start** → You must call \`list_roots\` before beginning work
 - **Before any task** → You must call \`understand\` before reading source files for project understanding
-- **After any task** → You must call \`create_concept\` / \`update_concept\` / \`link\` to record what you now KNOW — never a session report ("what I did", scope/count narration, pass summaries are progress, not knowledge; session provenance goes in \`created_by_task\`)
+- **After any task** → You must call \`create_concept\` / \`update_concept\` / \`link\` to record what you did
 - **Refactoring or removing features** → You must call \`remove_concept\` to mark things as gone (with reason)
 
 ## Core Principles

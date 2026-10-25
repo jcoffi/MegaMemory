@@ -1,9 +1,9 @@
 # Save Session Knowledge
 
-You are saving the durable knowledge from this session into the megamemory
-knowledge graph. Record what is now TRUE of the project — what it does, how it
-works, what was decided and why — not what happened. Session reports ("what I
-did", scope/count narration) belong in the reply, not the graph.
+You are saving what you learned this session into the megamemory knowledge graph.
+This is YOUR memory — record anything valuable for future sessions: what you
+understood about the project, what you built, decisions that were made, patterns
+you noticed, or intent the user shared.
 
 ## Step 1: Load existing graph
 
